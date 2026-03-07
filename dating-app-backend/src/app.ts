@@ -1,5 +1,8 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+
+// Ensure `.env` is loaded no matter where PM2 is started from.
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import express from 'express';
 import cors from 'cors';
@@ -7,7 +10,6 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import routes from './routes';
 import sequelize from './config/database';
-import path from 'path';
 import fs from 'fs';
 import * as os from 'os';
 

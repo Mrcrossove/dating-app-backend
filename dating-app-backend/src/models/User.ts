@@ -1,0 +1,127 @@
+import { Model, DataTypes } from 'sequelize';
+import sequelize from '../config/database';
+import type BaziInfo from './BaziInfo';
+import type Photo from './Photo';
+
+class User extends Model {
+  public id!: string;
+  public username!: string;
+  public nickname!: string;
+  public email!: string;
+  public password_hash!: string;
+  public gender!: string;
+  public birth_date!: Date;
+  public is_verified!: boolean;
+  public is_active!: boolean;
+  
+  // Profile Fields
+  public mbti!: string;
+  public interests!: string;
+  public love_view!: string;
+  public job!: string;
+  public height!: number;
+  public education!: string;
+  public constellation!: string;
+  public intro!: string;
+  
+  // New Fields from Screenshot
+  public school!: string;
+  public company!: string;
+  public hometown!: string;
+  public moments!: string;
+  public wishes!: string;
+
+  // Login provider info
+  public role!: string;
+  public provider!: string;
+  public provider_id!: string;
+  public avatar_url!: string;
+
+  // Association fields
+  public bazi_info?: BaziInfo;
+  public photos?: Photo[];
+
+  public readonly created_at!: Date;
+  public readonly updated_at!: Date;
+}
+
+User.init(
+  {
+    id: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      primaryKey: true,
+    },
+    username: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    nickname: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    password_hash: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    gender: {
+      type: DataTypes.ENUM('male', 'female'),
+      allowNull: false,
+    },
+    birth_date: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    is_verified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+    // Profile Fields
+    mbti: { type: DataTypes.STRING, allowNull: true },
+    interests: { type: DataTypes.TEXT, allowNull: true }, 
+    love_view: { type: DataTypes.TEXT, allowNull: true },
+    job: { type: DataTypes.STRING, allowNull: true },
+    height: { type: DataTypes.INTEGER, allowNull: true },
+    education: { type: DataTypes.STRING, allowNull: true },
+    constellation: { type: DataTypes.STRING, allowNull: true },
+    intro: { type: DataTypes.TEXT, allowNull: true },
+    
+    // New Fields
+    school: { type: DataTypes.STRING, allowNull: true },
+    company: { type: DataTypes.STRING, allowNull: true },
+    hometown: { type: DataTypes.STRING, allowNull: true },
+    moments: { type: DataTypes.TEXT, allowNull: true },
+    wishes: { type: DataTypes.TEXT, allowNull: true },
+
+    // Login provider info
+    role: { 
+      type: DataTypes.ENUM('user', 'admin'), 
+      defaultValue: 'user' 
+    },
+    provider: { 
+      type: DataTypes.ENUM('email', 'google', 'wechat'), 
+      defaultValue: 'email' 
+    },
+    provider_id: { type: DataTypes.STRING, allowNull: true },
+    avatar_url: { type: DataTypes.STRING, allowNull: true },
+  },
+  {
+    sequelize,
+    tableName: 'users',
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  }
+);
+
+export default User;

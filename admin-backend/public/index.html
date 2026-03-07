@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>伴合 - 管理后台</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1f2937; }
+
+/* Login */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.login-card { background: #fff; border-radius: 16px; padding: 48px; width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
+.login-card h1 { font-size: 24px; text-align: center; margin-bottom: 8px; color: #1f2937; }
+.login-card p { text-align: center; color: #6b7280; margin-bottom: 32px; font-size: 14px; }
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #374151; }
+.form-group input { width: 100%; padding: 10px 14px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px; outline: none; transition: border-color .2s; }
+.form-group input:focus { border-color: #6366f1; }
+.btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s; }
+.btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; }
+.btn-primary:hover { opacity: .9; }
+.btn-sm { width: auto; padding: 6px 16px; font-size: 13px; }
+.btn-success { background: #10b981; color: #fff; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
+
+/* Layout */
+.app { display: none; }
+.sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: #1e1b4b; color: #fff; padding: 24px 0; }
+.sidebar h2 { font-size: 18px; padding: 0 24px; margin-bottom: 32px; }
+.sidebar-menu a { display: block; padding: 12px 24px; color: rgba(255,255,255,.7); text-decoration: none; font-size: 14px; transition: all .2s; }
+.sidebar-menu a:hover, .sidebar-menu a.active { background: rgba(255,255,255,.1); color: #fff; }
+.main { margin-left: 220px; padding: 24px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.topbar h3 { font-size: 20px; }
+.user-info { font-size: 14px; color: #6b7280; }
+.user-info span { color: #6366f1; font-weight: 600; cursor: pointer; margin-left: 12px; }
+
+/* Stats */
+.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.stat-card .label { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
+.stat-card .value { font-size: 32px; font-weight: 700; }
+.stat-card .value.orange { color: #f59e0b; }
+.stat-card .value.green { color: #10b981; }
+.stat-card .value.red { color: #ef4444; }
+
+/* Table */
+.card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 24px; }
+.card h4 { font-size: 16px; margin-bottom: 16px; }
+.filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.filters select, .filters input { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 10px 12px; background: #f9fafb; color: #6b7280; font-weight: 500; border-bottom: 1px solid #e5e7eb; }
+td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-pending { background: #fef3c7; color: #92400e; }
+.badge-approved { background: #d1fae5; color: #065f46; }
+.badge-rejected { background: #fee2e2; color: #991b1b; }
+.actions { display: flex; gap: 6px; }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: #fff; border-radius: 16px; padding: 32px; width: 560px; max-height: 80vh; overflow-y: auto; }
+.modal h3 { font-size: 18px; margin-bottom: 20px; }
+.modal .form-group { margin-bottom: 14px; }
+.modal .form-group input, .modal .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+.modal .form-group textarea { height: 80px; resize: vertical; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+.bazi-display { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 12px 0; }
+.bazi-col { text-align: center; background: #f9fafb; border-radius: 8px; padding: 12px 8px; }
+.bazi-col .pillar-label { font-size: 12px; color: #9ca3af; margin-bottom: 4px; }
+.bazi-col .pillar-value { font-size: 18px; font-weight: 700; color: #1e1b4b; }
+.empty-state { text-align: center; padding: 48px; color: #9ca3af; }
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div class="login-page" id="loginPage">
+  <div class="login-card">
+    <h1>伴合管理后台</h1>
+    <p>请使用管理员账号登录</p>
+    <div class="form-group">
+      <label>用户名</label>
+      <input type="text" id="loginUser" placeholder="admin" value="admin">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="loginPass" placeholder="密码" value="admin123">
+    </div>
+    <button class="btn btn-primary" onclick="doLogin()">登 录</button>
+    <p id="loginError" style="color:#ef4444;margin-top:12px;font-size:13px;display:none;"></p>
+  </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app">
+  <div class="sidebar">
+    <h2>伴合管理后台</h2>
+    <div class="sidebar-menu">
+      <a href="#" class="active" onclick="showPage('dashboard')">📊 数据概览</a>
+      <a href="#" onclick="showPage('bazi')">🔮 八字审核</a>
+      <a href="#" onclick="showPage('education')">🎓 学历审核</a>
+      <a href="#" onclick="showPage('company')">🏢 公司审核</a>
+      <a href="#" onclick="showPage('realname')">🆔 真人审核</a>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <h3 id="pageTitle">数据概览</h3>
+      <div class="user-info">
+        管理员：<strong id="adminName">admin</strong>
+        <span onclick="doLogout()">退出登录</span>
+      </div>
+    </div>
+    <div id="pageContent"></div>
+  </div>
+</div>
+
+<!-- Review Modal -->
+<div class="modal-overlay" id="reviewModal">
+  <div class="modal">
+    <h3 id="modalTitle">审核详情</h3>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sm btn-outline" onclick="closeModal()">取消</button>
+      <button class="btn btn-sm btn-danger" onclick="rejectTask()">拒绝</button>
+      <button class="btn btn-sm btn-success" onclick="approveTask()">通过</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin + '/api';
+let token = localStorage.getItem('admin_token');
+let currentAdmin = null;
+let currentPage = 'dashboard';
+let currentTask = null;
+
+// ========== Auth ==========
+async function doLogin() {
+  const username = document.getElementById('loginUser').value;
+  const password = document.getElementById('loginPass').value;
+  try {
+    const res = await fetch(API + '/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      token = data.data.token;
+      currentAdmin = data.data.admin;
+      localStorage.setItem('admin_token', token);
+      showApp();
+    } else {
+      document.getElementById('loginError').textContent = data.message;
+      document.getElementById('loginError').style.display = 'block';
+    }
+  } catch (e) {
+    document.getElementById('loginError').textContent = '网络错误';
+    document.getElementById('loginError').style.display = 'block';
+  }
+}
+
+function doLogout() {
+  localStorage.removeItem('admin_token');
+  token = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginPage').style.display = 'flex';
+}
+
+function showApp() {
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  if (currentAdmin) document.getElementById('adminName').textContent = currentAdmin.username;
+  showPage('dashboard');
+}
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts, headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  if (res.status === 401) { doLogout(); return null; }
+  return res.json();
+}
+
+// ========== Pages ==========
+const pageNames = { dashboard: '数据概览', bazi: '八字审核', education: '学历审核', company: '公司审核', realname: '真人审核' };
+
+function showPage(page) {
+  currentPage = page;
+  document.getElementById('pageTitle').textContent = pageNames[page];
+  document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
+  event?.target?.classList?.add('active');
+  if (page === 'dashboard') loadDashboard();
+  else loadVerificationList(page === 'realname' ? 'real_name' : page === 'bazi' ? 'bazi_review' : page);
+}
+
+async function loadDashboard() {
+  const data = await apiFetch('/admin/verification/stats');
+  if (!data) return;
+  const s = data.data;
+  document.getElementById('pageContent').innerHTML = `
+    <div class="stats-row">
+      <div class="stat-card"><div class="label">待审核</div><div class="value orange">${s.pending}</div></div>
+      <div class="stat-card"><div class="label">已通过</div><div class="value green">${s.approved}</div></div>
+      <div class="stat-card"><div class="label">已拒绝</div><div class="value red">${s.rejected}</div></div>
+    </div>
+    <div class="card"><h4>按类型统计</h4>
+    <table><tr><th>类型</th><th>状态</th><th>数量</th></tr>
+    ${s.byType.map(r => `<tr><td>${typeLabel(r.type)}</td><td><span class="badge badge-${r.status}">${statusLabel(r.status)}</span></td><td>${r.count}</td></tr>`).join('')}
+    </table></div>`;
+}
+
+async function loadVerificationList(type) {
+  const data = await apiFetch(`/admin/verification/list?type=${type}&status=`);
+  if (!data) return;
+  const { list } = data.data;
+  document.getElementById('pageContent').innerHTML = `
+    <div class="filters">
+      <select onchange="filterStatus(this.value, '${type}')">
+        <option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option>
+      </select>
+    </div>
+    <div class="card">
+    ${list.length === 0 ? '<div class="empty-state">暂无数据</div>' : `
+      <table>
+        <tr><th>ID</th><th>用户</th>${type === 'bazi_review' ? '<th>四柱</th><th>性别</th>' : ''}<th>状态</th><th>提交时间</th><th>操作</th></tr>
+        ${list.map(t => `<tr>
+          <td>${t.id}</td>
+          <td>${t.nickname || t.user_id.substring(0, 8)}</td>
+          ${type === 'bazi_review' ? `<td>${t.bazi_year_pillar || ''} ${t.bazi_month_pillar || ''} ${t.bazi_day_pillar || ''} ${t.bazi_hour_pillar || ''}</td><td>${t.gender === 'female' ? '女' : '男'}</td>` : ''}
+          <td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td>
+          <td>${t.created_at}</td>
+          <td class="actions">
+            <button class="btn btn-sm btn-outline" onclick="openReview(${t.id})">查看</button>
+            ${t.status === 'pending' ? `<button class="btn btn-sm btn-success" onclick="openReview(${t.id})">审核</button>` : ''}
+          </td>
+        </tr>`).join('')}
+      </table>`}
+    </div>`;
+}
+
+async function filterStatus(status, type) {
+  const data = await apiFetch(`/admin/verification/list?type=${type}&status=${status}`);
+  if (!data) return;
+  const { list } = data.data;
+  loadVerificationList(type);
+}
+
+// ========== Modal ==========
+async function openReview(id) {
+  const data = await apiFetch('/admin/verification/' + id);
+  if (!data) return;
+  currentTask = data.data;
+  const t = currentTask;
+  document.getElementById('modalTitle').textContent = typeLabel(t.type) + ' - ' + statusLabel(t.status);
+
+  let html = '';
+  if (t.type === 'bazi_review') {
+    html = `
+      <p style="margin-bottom:12px;color:#6b7280;">用户: <strong>${t.nickname || t.user_id}</strong> | 出生日期: <strong>${t.birth_date || '未知'}</strong></p>
+      <div class="bazi-display">
+        <div class="bazi-col"><div class="pillar-label">年柱</div><input class="pillar-value" id="editYear" value="${t.bazi_year_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">月柱</div><input class="pillar-value" id="editMonth" value="${t.bazi_month_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">日柱</div><input class="pillar-value" id="editDay" value="${t.bazi_day_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">时柱</div><input class="pillar-value" id="editHour" value="${t.bazi_hour_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+      </div>
+      <div class="form-group"><label>性别</label>
+        <select id="editGender" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;width:100%;">
+          <option value="male" ${t.gender==='male'?'selected':''}>男</option>
+          <option value="female" ${t.gender==='female'?'selected':''}>女</option>
+        </select>
+      </div>
+      <div class="form-group"><label>审核备注</label><textarea id="reviewNote" placeholder="如有修改请说明原因"></textarea></div>`;
+  } else {
+    html = `
+      <p style="margin-bottom:12px;">用户ID: <strong>${t.user_id}</strong></p>
+      <p style="margin-bottom:12px;">提交数据: ${t.submitted_data || '无'}</p>
+      <div class="form-group"><label>审核备注</label><textarea id="reviewNote" placeholder="审核意见"></textarea></div>`;
+  }
+
+  document.getElementById('modalBody').innerHTML = html;
+  document.getElementById('reviewModal').classList.add('show');
+}
+
+function closeModal() { document.getElementById('reviewModal').classList.remove('show'); currentTask = null; }
+
+async function approveTask() {
+  if (!currentTask) return;
+  const body = { note: document.getElementById('reviewNote')?.value || '' };
+  if (currentTask.type === 'bazi_review') {
+    body.year_pillar = document.getElementById('editYear').value;
+    body.month_pillar = document.getElementById('editMonth').value;
+    body.day_pillar = document.getElementById('editDay').value;
+    body.hour_pillar = document.getElementById('editHour').value;
+    body.gender = document.getElementById('editGender').value;
+  }
+  await apiFetch(`/admin/verification/${currentTask.id}/approve`, { method: 'POST', body: JSON.stringify(body) });
+  closeModal();
+  showPage(currentPage);
+}
+
+async function rejectTask() {
+  if (!currentTask) return;
+  const note = document.getElementById('reviewNote')?.value || '审核未通过';
+  await apiFetch(`/admin/verification/${currentTask.id}/reject`, { method: 'POST', body: JSON.stringify({ note }) });
+  closeModal();
+  showPage(currentPage);
+}
+
+// ========== Helpers ==========
+function typeLabel(t) { return { bazi_review: '八字审核', education: '学历认证', company: '公司认证', real_name: '真人认证' }[t] || t; }
+function statusLabel(s) { return { pending: '待审核', approved: '已通过', rejected: '已拒绝' }[s] || s; }
+
+// ========== Init ==========
+if (token) {
+  apiFetch('/admin/profile').then(data => {
+    if (data?.success) { currentAdmin = data.data; showApp(); }
+    else doLogout();
+  }).catch(() => doLogout());
+} else {
+  document.getElementById('loginPage').style.display = 'flex';
+}
+</script>
+</body>
+</html>

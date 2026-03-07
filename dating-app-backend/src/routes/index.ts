@@ -6,6 +6,7 @@ import * as userController from '../controllers/userController';
 import * as likeController from '../controllers/likeController';
 import * as postController from '../controllers/postController';
 import * as uploadController from '../controllers/uploadController';
+import * as ossController from '../controllers/ossController';
 import * as murronProxyController from '../controllers/murronProxyController';
 import { authenticateToken } from '../middleware/auth';
 
@@ -55,7 +56,10 @@ router.get('/recommendations', authenticateToken, recommendationController.getRe
 router.post('/user/verify', authenticateToken, userController.submitVerification);
 router.get('/user/verify', authenticateToken, userController.getVerificationStatus);
 router.post('/user/photos', authenticateToken, userController.uploadPhoto);
+router.put('/user/photos', authenticateToken, userController.replacePhotos);
 router.get('/user/profile', authenticateToken, userController.getProfile);
+router.get('/user/:userId/profile', authenticateToken, userController.getPublicProfile);
+router.get('/user/:userId/photo-wall', authenticateToken, userController.getPhotoWall);
 router.put('/user/profile', authenticateToken, userController.updateProfile);
 
 // Like Routes
@@ -68,6 +72,7 @@ router.get('/user/:userId/posts', authenticateToken, postController.getUserPosts
 
 // Upload Routes
 router.post('/uploads/base64', authenticateToken, uploadController.uploadImagesBase64);
+router.get('/oss/policy', authenticateToken, ossController.getUploadPolicy);
 
 // Message Routes
 router.get('/messages', authenticateToken, userController.getConversations);

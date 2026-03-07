@@ -7,7 +7,7 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     const userId = req.user.id;
     const { targetId } = req.params;
 
-    if (userId === parseInt(targetId as string)) {
+    if (String(userId) === String(targetId)) {
         return res.status(400).json({ success: false, message: 'Cannot like yourself' });
     }
 

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { User, Message, Verification, Photo } from '../models';
+import { User, Message, Verification, Photo, Post } from '../models';
 import { Op } from 'sequelize';
 
 // --- Verification Controller ---
@@ -81,6 +81,42 @@ export const uploadPhoto = async (req: AuthRequest, res: Response) => {
         return res.status(500).json({ success: false, message: error.message });
     }
 }
+
+export const replacePhotos = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { urls } = req.body;
+
+    if (!Array.isArray(urls)) {
+      return res.status(400).json({ success: false, message: 'Invalid urls' });
+    }
+
+    const cleaned = urls
+      .map((x: any) => (typeof x === 'string' ? x.trim() : ''))
+      .filter((x: string) => x.length > 0)
+      .slice(0, 6);
+
+    if (cleaned.length === 0) {
+      return res.status(400).json({ success: false, message: 'No photo urls provided' });
+    }
+
+    await Photo.destroy({ where: { user_id: userId } });
+
+    const created = await Promise.all(
+      cleaned.map((url: string, index: number) =>
+        Photo.create({
+          user_id: userId,
+          url,
+          is_primary: index === 0
+        })
+      )
+    );
+
+    return res.status(200).json({ success: true, data: created });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 // --- Message Controller ---
 
@@ -192,6 +228,7 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
         const user = await User.findByPk(userId, {
+            attributes: { exclude: ['password_hash', 'provider_id', 'email'] as any },
             include: [{ model: Photo, as: 'photos' }]
         });
 
@@ -205,6 +242,111 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
         return res.status(500).json({ success: false, message: error.message });
     }
 }
+
+export const getPublicProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const rawUserId = (req.params as any).userId as string | string[] | undefined;
+    const userId = Array.isArray(rawUserId) ? rawUserId[0] : rawUserId;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Missing userId' });
+    }
+
+    const user = await User.findByPk(userId, {
+      attributes: [
+        'id',
+        'username',
+        'nickname',
+        'gender',
+        'birth_date',
+        'is_verified',
+        'mbti',
+        'interests',
+        'love_view',
+        'job',
+        'height',
+        'education',
+        'constellation',
+        'intro',
+        'school',
+        'company',
+        'hometown',
+        'moments',
+        'wishes',
+        'avatar_url',
+        'created_at'
+      ] as any,
+      include: [{ model: Photo, as: 'photos' }]
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    return res.status(200).json({ success: true, data: user });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getPhotoWall = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const photos = await Photo.findAll({
+      where: { user_id: userId },
+      order: [
+        ['is_primary', 'DESC'],
+        ['created_at', 'DESC']
+      ]
+    });
+
+    const posts = await Post.findAll({
+      where: { user_id: userId },
+      order: [['created_at', 'DESC']],
+      attributes: ['id', 'media', 'images', 'created_at'] as any
+    });
+
+    const items: Array<{ url: string; source: 'photo' | 'moment'; created_at: any }> = [];
+    const seen = new Set<string>();
+
+    const pushUrl = (url: string, source: 'photo' | 'moment', created_at: any) => {
+      const key = String(url || '').trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      items.push({ url: key, source, created_at });
+    };
+
+    photos.forEach((p: any) => pushUrl(p.url, 'photo', p.created_at));
+
+    for (const post of posts as any[]) {
+      let media: any[] = [];
+      try {
+        const parsed = JSON.parse(post.media || '[]');
+        if (Array.isArray(parsed)) media = parsed;
+      } catch (e) {
+        media = [];
+      }
+
+      if (media.length) {
+        media
+          .filter((m) => m && m.type === 'image' && typeof m.url === 'string')
+          .forEach((m) => pushUrl(m.url, 'moment', post.created_at));
+        continue;
+      }
+
+      try {
+        const imgs = JSON.parse(post.images || '[]');
+        if (Array.isArray(imgs)) imgs.forEach((u: any) => pushUrl(u, 'moment', post.created_at));
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    return res.status(200).json({ success: true, data: { items } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 // 允许用户更新的字段白名单
 const ALLOWED_PROFILE_FIELDS = [

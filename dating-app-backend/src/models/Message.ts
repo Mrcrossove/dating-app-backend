@@ -40,7 +40,7 @@ Message.init(
       allowNull: false,
     },
     message_type: {
-      type: DataTypes.ENUM('text', 'image', 'voice'),
+      type: DataTypes.ENUM('text', 'image', 'voice', 'system'),
       defaultValue: 'text',
     },
     is_read: {

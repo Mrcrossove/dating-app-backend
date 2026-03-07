@@ -77,6 +77,11 @@ const ensureUserColumns = async () => {
   await sql('ALTER TABLE users ADD COLUMN nickname TEXT;');
 };
 
+const ensurePostColumns = async () => {
+  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
+  await sql('ALTER TABLE posts ADD COLUMN media TEXT;');
+};
+
 // Sync database and start server
 const startServer = async () => {
   try {
@@ -87,6 +92,7 @@ const startServer = async () => {
     // force: false ensures tables are created if not exist, but doesn't drop them
     await sequelize.sync({ force: false });
     await ensureUserColumns();
+    await ensurePostColumns();
     console.log('Database synced.');
 
     app.listen(PORT, '0.0.0.0', () => {

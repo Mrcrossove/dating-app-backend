@@ -275,6 +275,7 @@ async function openReview(id) {
           <option value="female" ${t.gender==='female'?'selected':''}>女</option>
         </select>
       </div>
+      <div class="form-group"><label>当前大运 (current_luck_pillar)</label><input id="editCurrentLuckPillar" value="${t.current_luck_pillar || (t.reviewed_data ? (JSON.parse(t.reviewed_data).current_luck_pillar || '') : '')}" placeholder="例如：壬戌"></div>
       <div class="form-group"><label>审核备注</label><textarea id="reviewNote" placeholder="如有修改请说明原因"></textarea></div>`;
   } else {
     html = `
@@ -297,6 +298,7 @@ async function approveTask() {
     body.month_pillar = document.getElementById('editMonth').value;
     body.day_pillar = document.getElementById('editDay').value;
     body.hour_pillar = document.getElementById('editHour').value;
+    body.current_luck_pillar = (document.getElementById('editCurrentLuckPillar').value || '').trim();
     body.gender = document.getElementById('editGender').value;
   }
   await apiFetch(`/admin/verification/${currentTask.id}/approve`, { method: 'POST', body: JSON.stringify(body) });

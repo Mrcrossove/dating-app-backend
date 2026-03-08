@@ -9,14 +9,12 @@ const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://localhost:301
 
 export const calculate = async (req: AuthRequest, res: Response) => {
   try {
-    // Support optional authentication - use anonymous mode if no token
-    let userId = '1';
-    let user = null;
-    
-    if (req.user && req.user.id) {
-      userId = req.user.id;
-      user = await User.findByPk(userId);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
+
+    const user = await User.findByPk(userId);
 
     // Parse and validate input parameters
     const year = parseInt(req.body.year);

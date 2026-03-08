@@ -28,6 +28,7 @@ function initDatabase() {
       bazi_month_pillar TEXT,
       bazi_day_pillar TEXT,
       bazi_hour_pillar TEXT,
+      current_luck_pillar TEXT,
       gender TEXT,
       birth_date TEXT,
       submitted_data TEXT,
@@ -54,6 +55,9 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tasks_user ON verification_tasks(user_id);
     CREATE INDEX IF NOT EXISTS idx_cache_user ON murron_cache(user_id, request_type);
   `);
+
+  // Add columns for old databases (SQLite has no IF NOT EXISTS for ADD COLUMN on older versions)
+  try { db.exec('ALTER TABLE verification_tasks ADD COLUMN current_luck_pillar TEXT'); } catch (_) {}
 
   const admin = db.prepare('SELECT id FROM admin_users WHERE username = ?').get('admin');
   if (!admin) {

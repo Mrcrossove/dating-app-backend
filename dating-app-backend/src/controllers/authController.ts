@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
+import crypto from 'crypto';
 import { Op } from 'sequelize';
 import { User } from '../models';
 
@@ -131,6 +132,9 @@ export const login = async (req: Request, res: Response) => {
 // Phone-based login/registration for mobile app
 export const phoneLogin = async (req: Request, res: Response) => {
   try {
+    if (process.env.ALLOW_DEMO_PHONE_AUTH !== 'true') {
+      return res.status(410).json({ success: false, code: 'AUTH_DISABLED', message: 'Phone demo auth is disabled' });
+    }
     const { phone, code } = req.body;
 
     // For demo: accept code "1234" or any 4-digit code
@@ -185,6 +189,9 @@ export const phoneLogin = async (req: Request, res: Response) => {
 // Phone-based registration (separate from login)
 export const phoneRegister = async (req: Request, res: Response) => {
   try {
+    if (process.env.ALLOW_DEMO_PHONE_AUTH !== 'true') {
+      return res.status(410).json({ success: false, code: 'AUTH_DISABLED', message: 'Phone demo auth is disabled' });
+    }
     const { phone, code, gender } = req.body;
 
     // For demo: accept code "123456" or any 6-digit code
@@ -642,5 +649,83 @@ export const adminLogin = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================
+// WeChat encryptedData decrypt (Mini Program)
+// ============================================
+
+const getWechatSession = async (code: string) => {
+  const sessionRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
+    params: {
+      appid: WECHAT_APP_ID,
+      secret: WECHAT_APP_SECRET,
+      js_code: code,
+      grant_type: 'authorization_code',
+    },
+  });
+
+  const { openid, unionid, session_key, errcode, errmsg } = sessionRes.data || {};
+  if (errcode || !session_key) {
+    throw Object.assign(new Error(errmsg || '微信登录态获取失败'), { code: errcode || 'WECHAT_SESSION_FAILED', openid, unionid });
+  }
+  return { openid, unionid, session_key };
+};
+
+const decryptWechatDataInternal = (sessionKey: string, iv: string, encryptedData: string) => {
+  const key = Buffer.from(sessionKey, 'base64');
+  const ivBuf = Buffer.from(iv, 'base64');
+  const encrypted = Buffer.from(encryptedData, 'base64');
+
+  const decipher = crypto.createDecipheriv('aes-128-cbc', key, ivBuf);
+  decipher.setAutoPadding(true);
+
+  let decoded = decipher.update(encrypted, undefined, 'utf8');
+  decoded += decipher.final('utf8');
+
+  const data = JSON.parse(decoded);
+  const watermarkAppId = data?.watermark?.appid;
+  if (watermarkAppId && WECHAT_APP_ID && watermarkAppId !== WECHAT_APP_ID) {
+    throw new Error('微信数据校验失败');
+  }
+  return data;
+};
+
+export const decryptWechatData = async (req: Request, res: Response) => {
+  try {
+    const code = String(req.body?.code || '').trim();
+    const iv = String(req.body?.iv || '').trim();
+    const encryptedData = String(req.body?.encryptedData || '').trim();
+
+    if (!code) return res.status(400).json({ success: false, message: '缺少code' });
+    if (!iv || !encryptedData) return res.status(400).json({ success: false, message: '缺少加密参数' });
+
+    const { session_key } = await getWechatSession(code);
+    const data = decryptWechatDataInternal(session_key, iv, encryptedData);
+
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || '解密失败' });
+  }
+};
+
+export const decryptWechatPhone = async (req: Request, res: Response) => {
+  try {
+    const code = String(req.body?.code || '').trim();
+    const iv = String(req.body?.iv || '').trim();
+    const encryptedData = String(req.body?.encryptedData || '').trim();
+
+    if (!code) return res.status(400).json({ success: false, message: '缺少code' });
+    if (!iv || !encryptedData) return res.status(400).json({ success: false, message: '缺少加密参数' });
+
+    const { session_key } = await getWechatSession(code);
+    const data = decryptWechatDataInternal(session_key, iv, encryptedData);
+    const phoneNumber = data?.phoneNumber || data?.purePhoneNumber;
+
+    if (!phoneNumber) return res.status(400).json({ success: false, message: '未获取到手机号' });
+    return res.status(200).json({ success: true, data: { phoneNumber } });
+  } catch (error: any) {
+    return res.status(400).json({ success: false, message: error.message || '解密失败' });
   }
 };

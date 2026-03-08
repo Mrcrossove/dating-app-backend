@@ -40,9 +40,11 @@ GRANT ALL PRIVILEGES ON DATABASE dating_app TO dating_user;
 ### 3. 初始化数据库表
 
 ```bash
-# 执行初始化脚本
+# 可选：仅初始化扩展（uuid-ossp）
 sudo -u postgres psql -d dating_app -f init-db.sql
 ```
+
+本项目默认在启动时通过 Sequelize `sync()` 自动创建/补齐表结构（适合快速部署/演示环境）。
 
 ### 4. 配置后端环境变量
 
@@ -139,7 +141,7 @@ const baseURL = 'https://api.yourapp.com/api';
 | JWT_SECRET | 是 | JWT 签名密钥 |
 | WECHAT_APP_ID | 是 | 微信小程序 AppID |
 | WECHAT_APP_SECRET | 是 | 微信小程序 AppSecret |
-| OSS_* | 否 | 阿里云 OSS 配置（图片存储） |
+| OSS_* | 否 | 阿里云 OSS 配置（直传存储：`OSS_REGION/OSS_BUCKET/OSS_ACCESS_KEY_ID/OSS_ACCESS_KEY_SECRET`，可选 `OSS_CDN_DOMAIN`） |
 
 ## 🔧 常见问题
 

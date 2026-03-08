@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Post, User, Photo } from '../models';
+import { Op } from 'sequelize';
+import { Post, User, Photo, PostLike, PostComment, PostView } from '../models';
 
 type PostMediaItem = {
   type: 'image' | 'video';
@@ -32,6 +33,23 @@ const parseMediaList = (raw: any): PostMediaItem[] => {
     items.push({ type, url, size, duration, cover_url });
   }
   return items;
+};
+
+const safeJsonArray = (text: any) => {
+  try {
+    const parsed = JSON.parse(String(text || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const normalizePagination = (req: AuthRequest) => {
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const pageSizeRaw = parseInt(String(req.query.pageSize || req.query.page_size || '20'), 10) || 20;
+  const pageSize = Math.max(1, Math.min(50, pageSizeRaw));
+  const offset = (page - 1) * pageSize;
+  return { page, pageSize, offset };
 };
 
 export const createPost = async (req: AuthRequest, res: Response) => {
@@ -85,7 +103,10 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       user_id: userId,
       content: text,
       images: JSON.stringify(sanitizedImages),
-      media: JSON.stringify(sanitizedMedia)
+      media: JSON.stringify(sanitizedMedia),
+      likes_count: 0,
+      views_count: 0,
+      comments_count: 0
     });
 
     return res.status(201).json({ success: true, data: post });
@@ -103,7 +124,7 @@ export const getUserPosts = async (req: AuthRequest, res: Response) => {
             include: [{
                 model: User,
                 as: 'user',
-                attributes: ['id', 'username'],
+                attributes: ['id', 'username', 'nickname', 'avatar_url'],
                 include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
             }]
         });
@@ -111,21 +132,20 @@ export const getUserPosts = async (req: AuthRequest, res: Response) => {
         const data = posts.map((p: any) => ({
             id: p.id,
             content: p.content,
-            images: JSON.parse(p.images || '[]'),
+            images: safeJsonArray(p.images),
             media: (() => {
-              try {
-                const parsed = JSON.parse(p.media || '[]');
-                if (Array.isArray(parsed)) return parsed;
-              } catch (e) {
-                // ignore
-              }
-              return (JSON.parse(p.images || '[]') || []).map((url: string) => ({ type: 'image', url }));
+              const parsed = safeJsonArray(p.media);
+              if (parsed.length) return parsed;
+              return safeJsonArray(p.images).map((url: string) => ({ type: 'image', url }));
             })(),
             created_at: p.created_at,
+            likes_count: p.likes_count || 0,
+            views_count: p.views_count || 0,
+            comments_count: p.comments_count || 0,
             user: {
                 id: p.user.id,
-                username: p.user.username,
-                photo: p.user.photos?.[0]?.url
+                username: p.user.nickname || p.user.username,
+                photo: p.user.photos?.[0]?.url || p.user.avatar_url || null
             }
         }));
 
@@ -134,3 +154,201 @@ export const getUserPosts = async (req: AuthRequest, res: Response) => {
         return res.status(500).json({ success: false, message: error.message });
     }
 }
+
+export const getFeed = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { offset, pageSize, page } = normalizePagination(req);
+
+    const posts = await Post.findAll({
+      order: [['created_at', 'DESC']],
+      limit: pageSize,
+      offset,
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username', 'nickname', 'avatar_url'],
+        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+      }]
+    });
+
+    const postIds = posts.map((p: any) => p.id);
+    const liked = postIds.length
+      ? await PostLike.findAll({ where: { user_id: userId, post_id: { [Op.in]: postIds } }, attributes: ['post_id'] })
+      : [];
+    const likedSet = new Set(liked.map((x: any) => String(x.post_id)));
+
+    const data = posts.map((p: any) => ({
+      id: p.id,
+      content: p.content,
+      images: safeJsonArray(p.images),
+      media: (() => {
+        const parsed = safeJsonArray(p.media);
+        if (parsed.length) return parsed;
+        return safeJsonArray(p.images).map((url: string) => ({ type: 'image', url }));
+      })(),
+      created_at: p.created_at,
+      likes_count: p.likes_count || 0,
+      views_count: p.views_count || 0,
+      comments_count: p.comments_count || 0,
+      is_liked: likedSet.has(String(p.id)),
+      user: {
+        id: p.user.id,
+        username: p.user.nickname || p.user.username,
+        photo: p.user.photos?.[0]?.url || p.user.avatar_url || null
+      }
+    }));
+
+    return res.status(200).json({ success: true, data, pagination: { page, pageSize } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getPostDetail = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+
+    const post = await Post.findByPk(id, {
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username', 'nickname', 'avatar_url'],
+        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+      }]
+    });
+
+    if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
+
+    const [, created] = await PostView.findOrCreate({
+      where: { post_id: id, user_id: String(userId) },
+      defaults: { post_id: id, user_id: String(userId) }
+    });
+    if (created) {
+      await Post.increment('views_count', { by: 1, where: { id } }).catch(() => undefined);
+    }
+
+    const like = await PostLike.findOne({ where: { post_id: id, user_id: String(userId) } });
+
+    const p: any = post;
+    const data = {
+      id: p.id,
+      content: p.content,
+      images: safeJsonArray(p.images),
+      media: (() => {
+        const parsed = safeJsonArray(p.media);
+        if (parsed.length) return parsed;
+        return safeJsonArray(p.images).map((url: string) => ({ type: 'image', url }));
+      })(),
+      created_at: p.created_at,
+      likes_count: p.likes_count || 0,
+      views_count: p.views_count || 0,
+      comments_count: p.comments_count || 0,
+      is_liked: !!like,
+      user: {
+        id: p.user.id,
+        username: p.user.nickname || p.user.username,
+        photo: p.user.photos?.[0]?.url || p.user.avatar_url || null
+      }
+    };
+
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const likePost = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+
+    const [row, created] = await PostLike.findOrCreate({
+      where: { post_id: id, user_id: String(userId) },
+      defaults: { post_id: id, user_id: String(userId) }
+    });
+
+    if (created) {
+      await Post.increment('likes_count', { by: 1, where: { id } }).catch(() => undefined);
+    }
+
+    return res.status(200).json({ success: true, data: { liked: true } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const unlikePost = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+
+    const deleted = await PostLike.destroy({ where: { post_id: id, user_id: String(userId) } });
+    if (deleted) {
+      await Post.increment('likes_count', { by: -1, where: { id } }).catch(() => undefined);
+    }
+
+    return res.status(200).json({ success: true, data: { liked: false } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const addComment = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+    const content = String(req.body?.content || '').trim();
+
+    if (!content) return res.status(400).json({ success: false, message: '内容不能为空' });
+    if (content.length > 500) return res.status(400).json({ success: false, message: '内容过长' });
+
+    const comment = await PostComment.create({ post_id: id, user_id: String(userId), content });
+    await Post.increment('comments_count', { by: 1, where: { id } }).catch(() => undefined);
+
+    return res.status(201).json({ success: true, data: comment });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getComments = async (req: AuthRequest, res: Response) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+    const { offset, pageSize, page } = normalizePagination(req);
+
+    const comments = await PostComment.findAll({
+      where: { post_id: id },
+      order: [['created_at', 'ASC']],
+      limit: pageSize,
+      offset,
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username', 'nickname', 'avatar_url'],
+        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+      }]
+    });
+
+    const data = comments.map((c: any) => ({
+      id: c.id,
+      content: c.content,
+      created_at: c.created_at,
+      user: {
+        id: c.user.id,
+        username: c.user.nickname || c.user.username,
+        photo: c.user.photos?.[0]?.url || c.user.avatar_url || null
+      }
+    }));
+
+    return res.status(200).json({ success: true, data, pagination: { page, pageSize } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

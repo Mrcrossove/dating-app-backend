@@ -15,6 +15,7 @@ router.get('/internal/verification/user/:user_id/status', verifyCtrl.getUserRevi
 // --- Murron API 代理（供 dating-backend 调用）---
 router.post('/internal/murron/personal', murronCtrl.getPersonalAnalysis);
 router.post('/internal/murron/compatibility', murronCtrl.getCompatibilityAnalysis);
+router.post('/internal/murron/dayun', murronCtrl.getDayunAnalysis);
 
 // --- 管理员接口（需登录）---
 router.get('/admin/profile', adminAuth, authCtrl.getProfile);

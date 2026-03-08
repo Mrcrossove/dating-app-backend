@@ -9,10 +9,15 @@ class User extends Model {
   public nickname!: string;
   public email!: string;
   public password_hash!: string;
+  public phone!: string | null;
+  public phone_verified_at!: Date | null;
   public gender!: string;
   public birth_date!: Date;
   public is_verified!: boolean;
   public is_active!: boolean;
+  public profile_completed!: boolean;
+  public last_login_at!: Date | null;
+  public last_login_ip!: string | null;
   
   // Profile Fields
   public mbti!: string;
@@ -35,6 +40,8 @@ class User extends Model {
   public role!: string;
   public provider!: string;
   public provider_id!: string;
+  public wechat_openid!: string | null;
+  public wechat_unionid!: string | null;
   public avatar_url!: string;
 
   // Association fields
@@ -68,7 +75,16 @@ User.init(
     },
     password_hash: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
+    phone_verified_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     gender: {
       type: DataTypes.ENUM('male', 'female'),
@@ -85,6 +101,19 @@ User.init(
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
+    },
+    profile_completed: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    last_login_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    last_login_ip: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
     // Profile Fields
     mbti: { type: DataTypes.STRING, allowNull: true },
@@ -113,6 +142,8 @@ User.init(
       defaultValue: 'email' 
     },
     provider_id: { type: DataTypes.STRING, allowNull: true },
+    wechat_openid: { type: DataTypes.STRING, allowNull: true, unique: true },
+    wechat_unionid: { type: DataTypes.STRING, allowNull: true, unique: true },
     avatar_url: { type: DataTypes.STRING, allowNull: true },
   },
   {

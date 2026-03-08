@@ -8,6 +8,9 @@ class Post extends Model {
   public content!: string;
   public images!: string; // JSON string of image URLs
   public media!: string; // JSON string of media items
+  public likes_count!: number;
+  public views_count!: number;
+  public comments_count!: number;
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
 }
@@ -40,6 +43,21 @@ Post.init(
       type: DataTypes.TEXT,
       allowNull: true,
       defaultValue: '[]',
+    },
+    likes_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    views_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    comments_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
   },
   {

@@ -32,7 +32,11 @@ exports.approveTask = (req, res) => {
     return res.status(404).json({ success: false, message: '审核任务不存在' });
   }
 
-  const { year_pillar, month_pillar, day_pillar, hour_pillar, gender, note } = req.body;
+  if (task.status === 'approved') {
+    return res.status(400).json({ success: false, message: '该任务已审核通过，无法再次修改' });
+  }
+
+  const { year_pillar, month_pillar, day_pillar, hour_pillar, current_luck_pillar, gender, note } = req.body;
 
   const reviewedData = {};
   if (task.type === 'bazi_review') {
@@ -40,17 +44,18 @@ exports.approveTask = (req, res) => {
     reviewedData.month_pillar = month_pillar || task.bazi_month_pillar;
     reviewedData.day_pillar = day_pillar || task.bazi_day_pillar;
     reviewedData.hour_pillar = hour_pillar || task.bazi_hour_pillar;
+    reviewedData.current_luck_pillar = current_luck_pillar || task.current_luck_pillar || '';
     reviewedData.gender = gender || task.gender;
 
     db.prepare(`
       UPDATE verification_tasks 
       SET status = 'approved', 
           bazi_year_pillar = ?, bazi_month_pillar = ?, bazi_day_pillar = ?, bazi_hour_pillar = ?,
-          gender = ?, reviewed_data = ?, reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
+          current_luck_pillar = ?, gender = ?, reviewed_data = ?, reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
       WHERE id = ?
     `).run(
       reviewedData.year_pillar, reviewedData.month_pillar, reviewedData.day_pillar, reviewedData.hour_pillar,
-      reviewedData.gender, JSON.stringify(reviewedData), req.admin.id, note || '', task.id
+      reviewedData.current_luck_pillar, reviewedData.gender, JSON.stringify(reviewedData), req.admin.id, note || '', task.id
     );
   } else {
     db.prepare(`
@@ -85,6 +90,16 @@ exports.submitTask = (req, res) => {
   }
 
   // 同类型待审核任务去重
+  // 八字一旦审核通过，不允许再次提交/修改（避免四柱被改动）
+  if (type === 'bazi_review') {
+    const approved = db
+      .prepare("SELECT id FROM verification_tasks WHERE user_id = ? AND type = ? AND status = 'approved' LIMIT 1")
+      .get(user_id, type);
+    if (approved) {
+      return res.status(400).json({ success: false, message: '八字已审核通过，无法重新提交' });
+    }
+  }
+
   const existing = db.prepare('SELECT id FROM verification_tasks WHERE user_id = ? AND type = ? AND status = ?').get(user_id, type, 'pending');
   if (existing) {
     db.prepare(`
@@ -119,6 +134,10 @@ exports.getUserReviewStatus = (req, res) => {
       month_pillar: baziTask.bazi_month_pillar,
       day_pillar: baziTask.bazi_day_pillar,
       hour_pillar: baziTask.bazi_hour_pillar,
+      current_luck_pillar:
+        (baziTask.reviewed_data ? JSON.parse(baziTask.reviewed_data)?.current_luck_pillar : null) ||
+        baziTask.current_luck_pillar ||
+        '',
       gender: baziTask.gender
     } : null,
     education: tasks.find(t => t.type === 'education')?.status || null,

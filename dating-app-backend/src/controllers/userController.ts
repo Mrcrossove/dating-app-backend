@@ -2,6 +2,48 @@ import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { User, Message, Verification, Photo, Post } from '../models';
 import { Op } from 'sequelize';
+import axios from 'axios';
+import { calculateBaziWithBirthData } from '../services/baziService';
+import { getProfileState } from '../services/profileService';
+
+const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
+
+const getBaziReviewStatus = async (userId: string) => {
+  const res = await axios.get(`${ADMIN_BACKEND_URL}/api/internal/verification/user/${userId}/status`, {
+    timeout: 10000
+  });
+  return res.data?.data?.bazi_review?.status as string | undefined;
+};
+
+const submitBaziReviewTask = async (params: {
+  userId: string;
+  nickname: string;
+  gender: string;
+  birthDate: Date;
+  baziInfo: any;
+}) => {
+  const { userId, nickname, gender, birthDate, baziInfo } = params;
+
+  await axios.post(
+    `${ADMIN_BACKEND_URL}/api/internal/verification/submit`,
+    {
+      user_id: userId,
+      nickname,
+      type: 'bazi_review',
+      bazi_year_pillar: baziInfo.year_pillar,
+      bazi_month_pillar: baziInfo.month_pillar,
+      bazi_day_pillar: baziInfo.day_pillar,
+      bazi_hour_pillar: baziInfo.hour_pillar,
+      gender,
+      birth_date: birthDate.toISOString(),
+      submitted_data: {
+        birth_date: birthDate.toISOString(),
+        gender
+      }
+    },
+    { timeout: 15000 }
+  );
+};
 
 // --- Verification Controller ---
 
@@ -385,10 +427,56 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
             }
         }
 
+        const isTryingToChangeBaziInputs =
+          updates.gender !== undefined || updates.birth_date !== undefined;
+
+        if (isTryingToChangeBaziInputs) {
+          try {
+            const status = await getBaziReviewStatus(userId);
+            if (status === 'approved') {
+              return res.status(400).json({
+                success: false,
+                message: '八字已审核通过，无法修改生日或性别'
+              });
+            }
+          } catch (e: any) {
+            return res.status(503).json({
+              success: false,
+              message: '审核服务暂不可用，请稍后再试'
+            });
+          }
+        }
+
         // 执行更新
         await user.update(updates);
+        const profile = getProfileState(user);
+        if (user.profile_completed !== profile.completed) {
+          await user.update({ profile_completed: profile.completed });
+        }
 
-        return res.status(200).json({ success: true, data: user });
+        // 注册完善资料时：自动计算八字并提交审核任务（只要生日和性别齐全）
+        if (isTryingToChangeBaziInputs) {
+          const birthDate: Date | undefined = user.getDataValue('birth_date');
+          const gender: string | undefined = user.getDataValue('gender');
+
+          if (birthDate && (gender === 'male' || gender === 'female')) {
+            const baziInfo = await calculateBaziWithBirthData(userId, birthDate, gender, true);
+            try {
+              await submitBaziReviewTask({
+                userId,
+                nickname: user.getDataValue('nickname') || user.getDataValue('username') || '',
+                gender,
+                birthDate,
+                baziInfo
+              });
+            } catch (e: any) {
+              // Do not fail profile update if admin-backend is down
+              console.warn('[User] Failed to submit bazi review task:', e.message);
+            }
+          }
+        }
+
+        return res.status(200).json({ success: true, data: user, profile });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
     }

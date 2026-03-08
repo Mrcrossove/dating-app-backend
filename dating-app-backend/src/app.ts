@@ -17,6 +17,11 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const isProduction = process.env.NODE_ENV === 'production';
 
+const jwtSecret = process.env.JWT_SECRET || '';
+if (!jwtSecret || jwtSecret === 'your_super_secret_key') {
+  throw new Error('JWT_SECRET is missing or insecure. Please set a strong JWT_SECRET in environment variables.');
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: isProduction ? undefined : false, // 开发环境禁用CSP
@@ -77,11 +82,21 @@ const ensureUserColumns = async () => {
   await sql('ALTER TABLE users ADD COLUMN moments TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wishes TEXT;');
   await sql('ALTER TABLE users ADD COLUMN nickname TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN phone TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN phone_verified_at DATETIME;');
+  await sql('ALTER TABLE users ADD COLUMN profile_completed BOOLEAN DEFAULT 0;');
+  await sql('ALTER TABLE users ADD COLUMN last_login_at DATETIME;');
+  await sql('ALTER TABLE users ADD COLUMN last_login_ip TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN wechat_openid TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN wechat_unionid TEXT;');
 };
 
 const ensurePostColumns = async () => {
   const sql = (s: string) => sequelize.query(s).catch(() => undefined);
   await sql('ALTER TABLE posts ADD COLUMN media TEXT;');
+  await sql('ALTER TABLE posts ADD COLUMN likes_count INTEGER DEFAULT 0;');
+  await sql('ALTER TABLE posts ADD COLUMN views_count INTEGER DEFAULT 0;');
+  await sql('ALTER TABLE posts ADD COLUMN comments_count INTEGER DEFAULT 0;');
 };
 
 // Sync database and start server

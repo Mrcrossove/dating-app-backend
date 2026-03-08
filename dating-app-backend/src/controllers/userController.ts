@@ -421,7 +421,14 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
         if (updates.birth_date) {
             const text = String(updates.birth_date || '').trim();
             if (text) {
-                updates.birth_date = new Date(text);
+                const parsedDate = new Date(text);
+                if (Number.isNaN(parsedDate.getTime())) {
+                  return res.status(400).json({
+                    success: false,
+                    message: 'Invalid birth_date format'
+                  });
+                }
+                updates.birth_date = parsedDate;
             } else {
                 delete updates.birth_date;
             }

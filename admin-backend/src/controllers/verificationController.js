@@ -120,35 +120,63 @@ exports.submitTask = (req, res) => {
   res.json({ success: true, data: { id: result.lastInsertRowid, status: 'pending' } });
 };
 
-// 查询用户的审核状态
+// get user review status
 exports.getUserReviewStatus = (req, res) => {
   const { user_id } = req.params;
-  const tasks = db.prepare('SELECT * FROM verification_tasks WHERE user_id = ? ORDER BY created_at DESC').all(user_id);
-  
-  const baziTask = tasks.find(t => t.type === 'bazi_review');
+  const tasks = db
+    .prepare('SELECT * FROM verification_tasks WHERE user_id = ? ORDER BY created_at DESC')
+    .all(user_id);
+
+  const pickTaskByPriority = (type) => {
+    const list = tasks.filter((t) => t.type === type);
+    if (!list.length) return null;
+    return (
+      list.find((t) => t.status === 'approved') ||
+      list.find((t) => t.status === 'pending') ||
+      list.find((t) => t.status === 'rejected') ||
+      list[0]
+    );
+  };
+
+  const safeParse = (text) => {
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const baziTask = pickTaskByPriority('bazi_review');
+  const educationTask = pickTaskByPriority('education');
+  const companyTask = pickTaskByPriority('company');
+  const realNameTask = pickTaskByPriority('real_name');
+
+  const reviewedData = safeParse(baziTask?.reviewed_data);
+
   const result = {
-    bazi_review: baziTask ? {
-      status: baziTask.status,
-      reviewed_data: baziTask.reviewed_data ? JSON.parse(baziTask.reviewed_data) : null,
-      year_pillar: baziTask.bazi_year_pillar,
-      month_pillar: baziTask.bazi_month_pillar,
-      day_pillar: baziTask.bazi_day_pillar,
-      hour_pillar: baziTask.bazi_hour_pillar,
-      current_luck_pillar:
-        (baziTask.reviewed_data ? JSON.parse(baziTask.reviewed_data)?.current_luck_pillar : null) ||
-        baziTask.current_luck_pillar ||
-        '',
-      gender: baziTask.gender
-    } : null,
-    education: tasks.find(t => t.type === 'education')?.status || null,
-    company: tasks.find(t => t.type === 'company')?.status || null,
-    real_name: tasks.find(t => t.type === 'real_name')?.status || null
+    bazi_review: baziTask
+      ? {
+          status: baziTask.status,
+          reviewed_data: reviewedData,
+          year_pillar: reviewedData?.year_pillar || baziTask.bazi_year_pillar,
+          month_pillar: reviewedData?.month_pillar || baziTask.bazi_month_pillar,
+          day_pillar: reviewedData?.day_pillar || baziTask.bazi_day_pillar,
+          hour_pillar: reviewedData?.hour_pillar || baziTask.bazi_hour_pillar,
+          current_luck_pillar:
+            reviewedData?.current_luck_pillar || baziTask.current_luck_pillar || '',
+          gender: reviewedData?.gender || baziTask.gender
+        }
+      : null,
+    education: educationTask?.status || null,
+    company: companyTask?.status || null,
+    real_name: realNameTask?.status || null
   };
 
   res.json({ success: true, data: result });
 };
 
-// 统计概览
+// stats overview
 exports.getStats = (req, res) => {
   const pending = db.prepare("SELECT COUNT(*) as count FROM verification_tasks WHERE status = 'pending'").get().count;
   const approved = db.prepare("SELECT COUNT(*) as count FROM verification_tasks WHERE status = 'approved'").get().count;

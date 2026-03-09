@@ -5,59 +5,13 @@ import { Op } from 'sequelize';
 import axios from 'axios';
 import { calculateBaziWithBirthData } from '../services/baziService';
 import { getProfileState } from '../services/profileService';
+import {
+  formatBirthDateForDisplay,
+  normalizeBirthDateText,
+  parseBirthDateInput
+} from '../utils/birthDate';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
-const shanghaiDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Shanghai',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23'
-});
-
-const formatBirthDateForDisplay = (value: Date | string | null | undefined) => {
-  if (!value) return '';
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return String(value);
-  }
-
-  const parts = shanghaiDateTimeFormatter.formatToParts(date);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
-};
-
-const parseBirthDateInput = (value: string) => {
-  const text = String(value || '').trim();
-  if (!text) return null;
-
-  const matched = text.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
-  );
-
-  if (matched) {
-    const [, year, month, day, hour = '12', minute = '00', second = '00'] = matched;
-    const parsed = new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      Number(second),
-      0
-    );
-
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  const fallback = new Date(text);
-  return Number.isNaN(fallback.getTime()) ? null : fallback;
-};
 
 const serializeUserProfile = (user: any) => {
   const plain = user && typeof user.toJSON === 'function' ? user.toJSON() : user;
@@ -81,9 +35,11 @@ const submitBaziReviewTask = async (params: {
   nickname: string;
   gender: string;
   birthDate: Date;
+  birthDateText?: string;
   baziInfo: any;
 }) => {
-  const { userId, nickname, gender, birthDate, baziInfo } = params;
+  const { userId, nickname, gender, birthDate, birthDateText, baziInfo } = params;
+  const auditBirthDate = birthDateText || formatBirthDateForDisplay(birthDate);
 
   await axios.post(
     `${ADMIN_BACKEND_URL}/api/internal/verification/submit`,
@@ -96,9 +52,9 @@ const submitBaziReviewTask = async (params: {
       bazi_day_pillar: baziInfo.day_pillar,
       bazi_hour_pillar: baziInfo.hour_pillar,
       gender,
-      birth_date: formatBirthDateForDisplay(birthDate),
+      birth_date: auditBirthDate,
       submitted_data: {
-        birth_date: formatBirthDateForDisplay(birthDate),
+        birth_date: auditBirthDate,
         gender
       }
     },
@@ -465,6 +421,7 @@ const ALLOWED_PROFILE_FIELDS = [
 export const updateProfile = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
+        let auditBirthDateText = '';
 
         const user = await User.findByPk(userId);
         if (!user) {
@@ -493,6 +450,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
                     message: 'Invalid birth_date format'
                   });
                 }
+                auditBirthDateText = normalizeBirthDateText(text);
                 updates.birth_date = parsedDate;
             } else {
                 delete updates.birth_date;
@@ -539,6 +497,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
                 nickname: user.getDataValue('nickname') || user.getDataValue('username') || '',
                 gender,
                 birthDate,
+                birthDateText: auditBirthDateText,
                 baziInfo
               });
             } catch (e: any) {

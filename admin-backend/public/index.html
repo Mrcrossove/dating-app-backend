@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>伴合 - 管理后台</title>
+<title>浼村悎 - 绠＄悊鍚庡彴</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #1f2937; }
@@ -81,17 +81,17 @@ td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
 <!-- Login Page -->
 <div class="login-page" id="loginPage">
   <div class="login-card">
-    <h1>伴合管理后台</h1>
-    <p>请使用管理员账号登录</p>
+    <h1>浼村悎绠＄悊鍚庡彴</h1>
+    <p>璇蜂娇鐢ㄧ鐞嗗憳璐﹀彿鐧诲綍</p>
     <div class="form-group">
-      <label>用户名</label>
+      <label>鐢ㄦ埛鍚?/label>
       <input type="text" id="loginUser" placeholder="admin" value="admin">
     </div>
     <div class="form-group">
-      <label>密码</label>
-      <input type="password" id="loginPass" placeholder="密码" value="admin123">
+      <label>瀵嗙爜</label>
+      <input type="password" id="loginPass" placeholder="瀵嗙爜" value="admin123">
     </div>
-    <button class="btn btn-primary" onclick="doLogin()">登 录</button>
+    <button class="btn btn-primary" onclick="doLogin()">鐧?褰?/button>
     <p id="loginError" style="color:#ef4444;margin-top:12px;font-size:13px;display:none;"></p>
   </div>
 </div>
@@ -99,21 +99,21 @@ td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
 <!-- App -->
 <div class="app" id="app">
   <div class="sidebar">
-    <h2>伴合管理后台</h2>
+    <h2>浼村悎绠＄悊鍚庡彴</h2>
     <div class="sidebar-menu">
-      <a href="#" class="active" onclick="showPage('dashboard')">📊 数据概览</a>
-      <a href="#" onclick="showPage('bazi')">🔮 八字审核</a>
-      <a href="#" onclick="showPage('education')">🎓 学历审核</a>
-      <a href="#" onclick="showPage('company')">🏢 公司审核</a>
-      <a href="#" onclick="showPage('realname')">🆔 真人审核</a>
+      <a href="#" class="active" onclick="showPage('dashboard')">馃搳 鏁版嵁姒傝</a>
+      <a href="#" onclick="showPage('bazi')">馃敭 鍏瓧瀹℃牳</a>
+      <a href="#" onclick="showPage('education')">馃帗 瀛﹀巻瀹℃牳</a>
+      <a href="#" onclick="showPage('company')">馃彚 鍏徃瀹℃牳</a>
+      <a href="#" onclick="showPage('realname')">馃啍 鐪熶汉瀹℃牳</a>
     </div>
   </div>
   <div class="main">
     <div class="topbar">
-      <h3 id="pageTitle">数据概览</h3>
+      <h3 id="pageTitle">鏁版嵁姒傝</h3>
       <div class="user-info">
-        管理员：<strong id="adminName">admin</strong>
-        <span onclick="doLogout()">退出登录</span>
+        绠＄悊鍛橈細<strong id="adminName">admin</strong>
+        <span onclick="doLogout()">閫€鍑虹櫥褰?/span>
       </div>
     </div>
     <div id="pageContent"></div>
@@ -123,12 +123,12 @@ td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
 <!-- Review Modal -->
 <div class="modal-overlay" id="reviewModal">
   <div class="modal">
-    <h3 id="modalTitle">审核详情</h3>
+    <h3 id="modalTitle">瀹℃牳璇︽儏</h3>
     <div id="modalBody"></div>
     <div class="modal-actions">
-      <button class="btn btn-sm btn-outline" onclick="closeModal()">取消</button>
-      <button class="btn btn-sm btn-danger" onclick="rejectTask()">拒绝</button>
-      <button class="btn btn-sm btn-success" onclick="approveTask()">通过</button>
+      <button class="btn btn-sm btn-outline" onclick="closeModal()">鍙栨秷</button>
+      <button class="btn btn-sm btn-danger" onclick="rejectTask()">鎷掔粷</button>
+      <button class="btn btn-sm btn-success" onclick="approveTask()">閫氳繃</button>
     </div>
   </div>
 </div>
@@ -160,7 +160,7 @@ async function doLogin() {
       document.getElementById('loginError').style.display = 'block';
     }
   } catch (e) {
-    document.getElementById('loginError').textContent = '网络错误';
+    document.getElementById('loginError').textContent = '缃戠粶閿欒';
     document.getElementById('loginError').style.display = 'block';
   }
 }
@@ -188,7 +188,7 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ========== Pages ==========
-const pageNames = { dashboard: '数据概览', bazi: '八字审核', education: '学历审核', company: '公司审核', realname: '真人审核' };
+const pageNames = { dashboard: '鏁版嵁姒傝', bazi: '鍏瓧瀹℃牳', education: '瀛﹀巻瀹℃牳', company: '鍏徃瀹℃牳', realname: '鐪熶汉瀹℃牳' };
 
 function showPage(page) {
   currentPage = page;
@@ -205,12 +205,12 @@ async function loadDashboard() {
   const s = data.data;
   document.getElementById('pageContent').innerHTML = `
     <div class="stats-row">
-      <div class="stat-card"><div class="label">待审核</div><div class="value orange">${s.pending}</div></div>
-      <div class="stat-card"><div class="label">已通过</div><div class="value green">${s.approved}</div></div>
-      <div class="stat-card"><div class="label">已拒绝</div><div class="value red">${s.rejected}</div></div>
+      <div class="stat-card"><div class="label">寰呭鏍?/div><div class="value orange">${s.pending}</div></div>
+      <div class="stat-card"><div class="label">宸查€氳繃</div><div class="value green">${s.approved}</div></div>
+      <div class="stat-card"><div class="label">宸叉嫆缁?/div><div class="value red">${s.rejected}</div></div>
     </div>
-    <div class="card"><h4>按类型统计</h4>
-    <table><tr><th>类型</th><th>状态</th><th>数量</th></tr>
+    <div class="card"><h4>鎸夌被鍨嬬粺璁?/h4>
+    <table><tr><th>绫诲瀷</th><th>鐘舵€?/th><th>鏁伴噺</th></tr>
     ${s.byType.map(r => `<tr><td>${typeLabel(r.type)}</td><td><span class="badge badge-${r.status}">${statusLabel(r.status)}</span></td><td>${r.count}</td></tr>`).join('')}
     </table></div>`;
 }
@@ -222,22 +222,22 @@ async function loadVerificationList(type) {
   document.getElementById('pageContent').innerHTML = `
     <div class="filters">
       <select onchange="filterStatus(this.value, '${type}')">
-        <option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已通过</option><option value="rejected">已拒绝</option>
+        <option value="">鍏ㄩ儴鐘舵€?/option><option value="pending">寰呭鏍?/option><option value="approved">宸查€氳繃</option><option value="rejected">宸叉嫆缁?/option>
       </select>
     </div>
     <div class="card">
-    ${list.length === 0 ? '<div class="empty-state">暂无数据</div>' : `
+    ${list.length === 0 ? '<div class="empty-state">鏆傛棤鏁版嵁</div>' : `
       <table>
-        <tr><th>ID</th><th>用户</th>${type === 'bazi_review' ? '<th>四柱</th><th>性别</th>' : ''}<th>状态</th><th>提交时间</th><th>操作</th></tr>
+        <tr><th>ID</th><th>鐢ㄦ埛</th>${type === 'bazi_review' ? '<th>鍥涙煴</th><th>鎬у埆</th>' : ''}<th>鐘舵€?/th><th>鎻愪氦鏃堕棿</th><th>鎿嶄綔</th></tr>
         ${list.map(t => `<tr>
           <td>${t.id}</td>
           <td>${t.nickname || t.user_id.substring(0, 8)}</td>
-          ${type === 'bazi_review' ? `<td>${t.bazi_year_pillar || ''} ${t.bazi_month_pillar || ''} ${t.bazi_day_pillar || ''} ${t.bazi_hour_pillar || ''}</td><td>${t.gender === 'female' ? '女' : '男'}</td>` : ''}
+          ${type === 'bazi_review' ? `<td>${t.bazi_year_pillar || ''} ${t.bazi_month_pillar || ''} ${t.bazi_day_pillar || ''} ${t.bazi_hour_pillar || ''}</td><td>${t.gender === 'female' ? '濂? : '鐢?}</td>` : ''}
           <td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td>
           <td>${t.created_at}</td>
           <td class="actions">
-            <button class="btn btn-sm btn-outline" onclick="openReview(${t.id})">查看</button>
-            ${t.status === 'pending' ? `<button class="btn btn-sm btn-success" onclick="openReview(${t.id})">审核</button>` : ''}
+            <button class="btn btn-sm btn-outline" onclick="openReview(${t.id})">鏌ョ湅</button>
+            ${t.status === 'pending' ? `<button class="btn btn-sm btn-success" onclick="openReview(${t.id})">瀹℃牳</button>` : ''}
           </td>
         </tr>`).join('')}
       </table>`}
@@ -263,26 +263,26 @@ async function openReview(id) {
   if (t.type === 'bazi_review') {
     const birthDateText = formatBirthDateText(t.birth_date);
     html = `
-      <p style="margin-bottom:12px;color:#6b7280;">用户: <strong>${t.nickname || t.user_id}</strong> | 出生日期: <strong>${birthDateText}</strong></p>
+      <p style="margin-bottom:12px;color:#6b7280;">鐢ㄦ埛: <strong>${t.nickname || t.user_id}</strong> | 鍑虹敓鏃ユ湡: <strong>${birthDateText}</strong></p>
       <div class="bazi-display">
-        <div class="bazi-col"><div class="pillar-label">年柱</div><input class="pillar-value" id="editYear" value="${t.bazi_year_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
-        <div class="bazi-col"><div class="pillar-label">月柱</div><input class="pillar-value" id="editMonth" value="${t.bazi_month_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
-        <div class="bazi-col"><div class="pillar-label">日柱</div><input class="pillar-value" id="editDay" value="${t.bazi_day_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
-        <div class="bazi-col"><div class="pillar-label">时柱</div><input class="pillar-value" id="editHour" value="${t.bazi_hour_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">骞存煴</div><input class="pillar-value" id="editYear" value="${t.bazi_year_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">鏈堟煴</div><input class="pillar-value" id="editMonth" value="${t.bazi_month_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">鏃ユ煴</div><input class="pillar-value" id="editDay" value="${t.bazi_day_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
+        <div class="bazi-col"><div class="pillar-label">鏃舵煴</div><input class="pillar-value" id="editHour" value="${t.bazi_hour_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
       </div>
-      <div class="form-group"><label>性别</label>
+      <div class="form-group"><label>鎬у埆</label>
         <select id="editGender" style="padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;width:100%;">
-          <option value="male" ${t.gender==='male'?'selected':''}>男</option>
-          <option value="female" ${t.gender==='female'?'selected':''}>女</option>
+          <option value="male" ${t.gender==='male'?'selected':''}>鐢?/option>
+          <option value="female" ${t.gender==='female'?'selected':''}>濂?/option>
         </select>
       </div>
-      <div class="form-group"><label>当前大运 (current_luck_pillar)</label><input id="editCurrentLuckPillar" value="${t.current_luck_pillar || (t.reviewed_data ? (JSON.parse(t.reviewed_data).current_luck_pillar || '') : '')}" placeholder="例如：壬戌"></div>
-      <div class="form-group"><label>审核备注</label><textarea id="reviewNote" placeholder="如有修改请说明原因"></textarea></div>`;
+      <div class="form-group"><label>褰撳墠澶ц繍 (current_luck_pillar)</label><input id="editCurrentLuckPillar" value="${t.current_luck_pillar || (t.reviewed_data ? (JSON.parse(t.reviewed_data).current_luck_pillar || '') : '')}" placeholder="渚嬪锛氬，鎴?></div>
+      <div class="form-group"><label>瀹℃牳澶囨敞</label><textarea id="reviewNote" placeholder="濡傛湁淇敼璇疯鏄庡師鍥?></textarea></div>`;
   } else {
     html = `
-      <p style="margin-bottom:12px;">用户ID: <strong>${t.user_id}</strong></p>
-      <p style="margin-bottom:12px;">提交数据: ${t.submitted_data || '无'}</p>
-      <div class="form-group"><label>审核备注</label><textarea id="reviewNote" placeholder="审核意见"></textarea></div>`;
+      <p style="margin-bottom:12px;">鐢ㄦ埛ID: <strong>${t.user_id}</strong></p>
+      <p style="margin-bottom:12px;">鎻愪氦鏁版嵁: ${t.submitted_data || '鏃?}</p>
+      <div class="form-group"><label>瀹℃牳澶囨敞</label><textarea id="reviewNote" placeholder="瀹℃牳鎰忚"></textarea></div>`;
   }
 
   document.getElementById('modalBody').innerHTML = html;
@@ -309,7 +309,7 @@ async function approveTask() {
 
 async function rejectTask() {
   if (!currentTask) return;
-  const note = document.getElementById('reviewNote')?.value || '审核未通过';
+  const note = document.getElementById('reviewNote')?.value || '瀹℃牳鏈€氳繃';
   await apiFetch(`/admin/verification/${currentTask.id}/reject`, { method: 'POST', body: JSON.stringify({ note }) });
   closeModal();
   showPage(currentPage);
@@ -320,8 +320,13 @@ function formatBirthDateText(value) {
   const text = String(value || '').trim();
   if (!text) return '未知';
 
-  const isoLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-  if (!isoLike.test(text)) return text;
+  const plainMatch = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (plainMatch) {
+    const [, year, month, day, hour = '12', minute = '00'] = plainMatch;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${minute}`;
+  }
+
+  if (!text.includes('T')) return text;
 
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
@@ -339,8 +344,8 @@ function formatBirthDateText(value) {
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
 }
 
-function typeLabel(t) { return { bazi_review: '八字审核', education: '学历认证', company: '公司认证', real_name: '真人认证' }[t] || t; }
-function statusLabel(s) { return { pending: '待审核', approved: '已通过', rejected: '已拒绝' }[s] || s; }
+function typeLabel(t) { return { bazi_review: '鍏瓧瀹℃牳', education: '瀛﹀巻璁よ瘉', company: '鍏徃璁よ瘉', real_name: '鐪熶汉璁よ瘉' }[t] || t; }
+function statusLabel(s) { return { pending: '寰呭鏍?, approved: '宸查€氳繃', rejected: '宸叉嫆缁? }[s] || s; }
 
 // ========== Init ==========
 if (token) {
@@ -354,3 +359,4 @@ if (token) {
 </script>
 </body>
 </html>
+

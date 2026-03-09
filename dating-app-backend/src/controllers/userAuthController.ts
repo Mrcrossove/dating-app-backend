@@ -2,6 +2,7 @@ import { Response } from 'express';
 import crypto from 'crypto';
 import { AuthRequest } from '../middleware/auth';
 import { AuthRecord, Verification, User } from '../models';
+import { parseBirthDateInput } from '../utils/birthDate';
 
 const sha256 = (text: string) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -78,7 +79,10 @@ export const submitRealNameAuth = async (req: AuthRequest, res: Response) => {
     await upsertAuthRecord(userId, 'real_name', 'approved', payload);
     await User.update({ is_verified: true }, { where: { id: userId } });
     if (birth_date) {
-      await User.update({ birth_date: new Date(birth_date) }, { where: { id: userId } }).catch(() => undefined);
+      const parsedBirthDate = parseBirthDateInput(birth_date);
+      if (parsedBirthDate) {
+        await User.update({ birth_date: parsedBirthDate }, { where: { id: userId } }).catch(() => undefined);
+      }
     }
 
     return res.status(200).json({ success: true, data: { status: 'approved' } });
@@ -126,4 +130,3 @@ export const submitEducationAuth = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-

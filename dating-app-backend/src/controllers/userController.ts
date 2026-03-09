@@ -7,6 +7,67 @@ import { calculateBaziWithBirthData } from '../services/baziService';
 import { getProfileState } from '../services/profileService';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
+const shanghaiDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23'
+});
+
+const formatBirthDateForDisplay = (value: Date | string | null | undefined) => {
+  if (!value) return '';
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const parts = shanghaiDateTimeFormatter.formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+};
+
+const parseBirthDateInput = (value: string) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const matched = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+
+  if (matched) {
+    const [, year, month, day, hour = '12', minute = '00', second = '00'] = matched;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+      0
+    );
+
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  const fallback = new Date(text);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
+const serializeUserProfile = (user: any) => {
+  const plain = user && typeof user.toJSON === 'function' ? user.toJSON() : user;
+  if (!plain || typeof plain !== 'object') return plain;
+
+  return {
+    ...plain,
+    birth_date: formatBirthDateForDisplay(plain.birth_date)
+  };
+};
 
 const getBaziReviewStatus = async (userId: string) => {
   const res = await axios.get(`${ADMIN_BACKEND_URL}/api/internal/verification/user/${userId}/status`, {
@@ -35,9 +96,9 @@ const submitBaziReviewTask = async (params: {
       bazi_day_pillar: baziInfo.day_pillar,
       bazi_hour_pillar: baziInfo.hour_pillar,
       gender,
-      birth_date: birthDate.toISOString(),
+      birth_date: formatBirthDateForDisplay(birthDate),
       submitted_data: {
-        birth_date: birthDate.toISOString(),
+        birth_date: formatBirthDateForDisplay(birthDate),
         gender
       }
     },
@@ -58,7 +119,11 @@ export const submitVerification = async (req: AuthRequest, res: Response) => {
 
     // Update birth date if provided (for precise correction)
     if (birth_date) {
-        await User.update({ birth_date: new Date(birth_date) }, { where: { id: userId } });
+        const parsedBirthDate = parseBirthDateInput(String(birth_date));
+        if (!parsedBirthDate) {
+          return res.status(400).json({ success: false, message: 'Invalid birth_date format' });
+        }
+        await User.update({ birth_date: parsedBirthDate }, { where: { id: userId } });
     }
 
     // Check if verification already exists
@@ -279,7 +344,7 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
         }
 
         // Add calculated age or other virtual fields if needed
-        return res.status(200).json({ success: true, data: user });
+        return res.status(200).json({ success: true, data: serializeUserProfile(user) });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
     }
@@ -324,7 +389,7 @@ export const getPublicProfile = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    return res.status(200).json({ success: true, data: user });
+    return res.status(200).json({ success: true, data: serializeUserProfile(user) });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -421,8 +486,8 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
         if (updates.birth_date) {
             const text = String(updates.birth_date || '').trim();
             if (text) {
-                const parsedDate = new Date(text);
-                if (Number.isNaN(parsedDate.getTime())) {
+                const parsedDate = parseBirthDateInput(text);
+                if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
                   return res.status(400).json({
                     success: false,
                     message: 'Invalid birth_date format'
@@ -483,7 +548,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
           }
         }
 
-        return res.status(200).json({ success: true, data: user, profile });
+        return res.status(200).json({ success: true, data: serializeUserProfile(user), profile });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
     }

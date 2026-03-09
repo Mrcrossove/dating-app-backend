@@ -261,8 +261,9 @@ async function openReview(id) {
 
   let html = '';
   if (t.type === 'bazi_review') {
+    const birthDateText = formatBirthDateText(t.birth_date);
     html = `
-      <p style="margin-bottom:12px;color:#6b7280;">用户: <strong>${t.nickname || t.user_id}</strong> | 出生日期: <strong>${t.birth_date || '未知'}</strong></p>
+      <p style="margin-bottom:12px;color:#6b7280;">用户: <strong>${t.nickname || t.user_id}</strong> | 出生日期: <strong>${birthDateText}</strong></p>
       <div class="bazi-display">
         <div class="bazi-col"><div class="pillar-label">年柱</div><input class="pillar-value" id="editYear" value="${t.bazi_year_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
         <div class="bazi-col"><div class="pillar-label">月柱</div><input class="pillar-value" id="editMonth" value="${t.bazi_month_pillar || ''}" style="width:60px;text-align:center;border:1px solid #d1d5db;border-radius:4px;font-size:16px;font-weight:700;padding:4px;"></div>
@@ -315,6 +316,29 @@ async function rejectTask() {
 }
 
 // ========== Helpers ==========
+function formatBirthDateText(value) {
+  const text = String(value || '').trim();
+  if (!text) return '未知';
+
+  const isoLike = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+  if (!isoLike.test(text)) return text;
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
 function typeLabel(t) { return { bazi_review: '八字审核', education: '学历认证', company: '公司认证', real_name: '真人认证' }[t] || t; }
 function statusLabel(s) { return { pending: '待审核', approved: '已通过', rejected: '已拒绝' }[s] || s; }
 

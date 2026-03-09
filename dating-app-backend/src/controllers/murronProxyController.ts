@@ -43,22 +43,18 @@ export const getPersonalAnalysis = async (req: AuthRequest, res: Response) => {
 
     const unlocked = await getUnlocked(userId);
     const data = response.data?.data || {};
-    const sections = data.sections || {};
-
-    const filteredSections: any = {
-      basicInfo: sections.basicInfo || '',
-      characterAnalysis: sections.characterAnalysis || ''
+    const filteredData: any = {
+      ...data,
+      partner_profile: unlocked.partner_profile ? (data.partner_profile || data.partnerProfile || '') : '',
+      partnerProfile: unlocked.partner_profile ? (data.partner_profile || data.partnerProfile || '') : '',
+      fortune_2026: unlocked.fortune_2026 ? (data.fortune_2026 || data.fortune2026 || '') : '',
+      fortune2026: unlocked.fortune_2026 ? (data.fortune_2026 || data.fortune2026 || '') : ''
     };
-
-    if (unlocked.partner_profile) filteredSections.partnerProfile = sections.partnerProfile || '';
-    if (unlocked.fortune_2026) filteredSections.fortune2026 = sections.fortune2026 || '';
 
     return res.json({
       success: true,
       data: {
-        ...data,
-        fullText: undefined,
-        sections: filteredSections,
+        ...filteredData,
         unlocked,
         locked: {
           partner_profile: !unlocked.partner_profile,

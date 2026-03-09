@@ -1,4 +1,4 @@
-const axios = require('axios');
+﻿const axios = require('axios');
 const { db } = require('../models/database');
 
 const MURRON_URL = process.env.MURRON_API_URL;
@@ -8,8 +8,8 @@ const DAYUN_URL = process.env.DAYUN_API_URL || 'https://www.murron-omni.com/v1/w
 const DAYUN_KEY = process.env.DAYUN_API_KEY || 'app-OuLMHlENy58k2CUZJdorgKDX';
 
 function buildBaziString(gender, yearPillar, monthPillar, dayPillar, hourPillar) {
-  const genderText = gender === 'female' ? '女' : '男';
-  return `${genderText}嘉宾：年柱：${yearPillar}。月柱：${monthPillar}。日柱：${dayPillar}。时柱：${hourPillar}。`;
+  const genderText = gender === 'female' ? '女嘉宾' : '男嘉宾';
+  return `${genderText}：年柱：${yearPillar}。月柱：${monthPillar}。日柱：${dayPillar}。时柱：${hourPillar}。`;
 }
 
 async function callMurronAPI(inputs, userId) {
@@ -19,18 +19,13 @@ async function callMurronAPI(inputs, userId) {
     user: userId || 'system'
   }, {
     headers: {
-      'Authorization': `Bearer ${MURRON_KEY}`,
+      Authorization: `Bearer ${MURRON_KEY}`,
       'Content-Type': 'application/json'
     },
     timeout: 120000
   });
 
-  // Murron API 返回格式可能是 { data: { outputs: { text: "..." } } }
-  const text = response.data?.data?.outputs?.text
-    || response.data?.outputs?.text
-    || (typeof response.data === 'string' ? response.data : JSON.stringify(response.data));
-
-  return text;
+  return response.data;
 }
 
 async function callDayunAPI(inputs, userId) {
@@ -40,7 +35,7 @@ async function callDayunAPI(inputs, userId) {
     user: userId || 'system'
   }, {
     headers: {
-      'Authorization': `Bearer ${DAYUN_KEY}`,
+      Authorization: `Bearer ${DAYUN_KEY}`,
       'Content-Type': 'application/json'
     },
     timeout: 120000
@@ -54,8 +49,8 @@ async function callDayunAPI(inputs, userId) {
 }
 
 function parseSections(text) {
+  const source = String(text || '');
   const sections = {};
-
   const sectionPatterns = [
     { key: 'characterAnalysis', start: '### 一、', end: '### 二、' },
     { key: 'partnerProfile', start: '### 二、', end: '### 三、' },
@@ -64,28 +59,109 @@ function parseSections(text) {
   ];
 
   for (const { key, start, end } of sectionPatterns) {
-    const startIdx = text.indexOf(start);
+    const startIdx = source.indexOf(start);
     if (startIdx === -1) continue;
-
-    const endIdx = end ? text.indexOf(end, startIdx) : text.length;
-    sections[key] = text.substring(startIdx, endIdx === -1 ? text.length : endIdx).trim();
+    const endIdx = end ? source.indexOf(end, startIdx) : source.length;
+    sections[key] = source.substring(startIdx, endIdx === -1 ? source.length : endIdx).trim();
   }
 
-  const basicIdx = text.indexOf('**【基础信息锚定】**');
+  const basicIdx = source.indexOf('**【基础信息锁定】**');
   if (basicIdx !== -1) {
-    const nextSection = text.indexOf('### 一、', basicIdx);
-    sections.basicInfo = text.substring(basicIdx, nextSection === -1 ? text.length : nextSection).trim();
+    const nextSection = source.indexOf('### 一、', basicIdx);
+    sections.basicInfo = source.substring(basicIdx, nextSection === -1 ? source.length : nextSection).trim();
   }
 
   return sections;
 }
 
-// 个人命理解读
+function tryParseJson(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+
+  const cleaned = value
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeTextValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\\n/g, ' ')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizePersonalPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  return {
+    strong_or_weak: normalizeTextValue(payload.strong_or_weak),
+    lucky_elements: normalizeTextValue(payload.lucky_elements),
+    unlucky_elements: normalizeTextValue(payload.unlucky_elements),
+    title: normalizeTextValue(payload.title),
+    social_camouflage: normalizeTextValue(payload.social_camouflage),
+    deep_core: normalizeTextValue(payload.deep_core),
+    exclusive_verdict: normalizeTextValue(payload.exclusive_verdict),
+    partner_profile: normalizeTextValue(payload.partner_profile || payload.partnerProfile),
+    fortune_2026: normalizeTextValue(payload.fortune_2026 || payload.fortune2026)
+  };
+}
+
+function extractPersonalPayload(apiResponse) {
+  const outputs = apiResponse?.data?.outputs || apiResponse?.outputs || {};
+  const candidates = [
+    outputs.json,
+    outputs.result,
+    outputs.res,
+    outputs.text,
+    apiResponse?.data,
+    apiResponse
+  ];
+
+  for (const item of candidates) {
+    const parsed = tryParseJson(item);
+    const normalized = normalizePersonalPayload(parsed);
+    if (normalized && (normalized.strong_or_weak || normalized.title || normalized.social_camouflage)) {
+      return {
+        payload: normalized,
+        rawText: typeof item === 'string' ? item : JSON.stringify(parsed)
+      };
+    }
+  }
+
+  const fallbackText = outputs.text
+    || outputs.res
+    || outputs.result
+    || (typeof apiResponse === 'string' ? apiResponse : JSON.stringify(apiResponse));
+
+  return {
+    payload: null,
+    rawText: typeof fallbackText === 'string' ? fallbackText : JSON.stringify(fallbackText)
+  };
+}
+
+function parseCachedPersonalPayload(text) {
+  const parsed = tryParseJson(text);
+  const normalized = normalizePersonalPayload(parsed);
+  return normalized && (normalized.strong_or_weak || normalized.title || normalized.social_camouflage)
+    ? normalized
+    : null;
+}
+
 exports.getPersonalAnalysis = async (req, res) => {
   try {
     const { user_id } = req.body;
-
-    // 查找已审核通过的八字
     const task = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(user_id);
     if (!task) {
       return res.status(400).json({ success: false, message: '八字信息尚未审核通过，请等待管理员确认' });
@@ -97,37 +173,40 @@ exports.getPersonalAnalysis = async (req, res) => {
     const dayP = finalData.day_pillar || task.bazi_day_pillar;
     const hourP = finalData.hour_pillar || task.bazi_hour_pillar;
     const gender = finalData.gender || task.gender;
-
     const baziString = buildBaziString(gender, yearP, monthP, dayP, hourP);
 
-    // 检查缓存
     const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'personal' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, baziString);
-    if (cached) {
+    const cachedPayload = cached ? parseCachedPersonalPayload(cached.response_text) : null;
+    if (cached && cachedPayload) {
       return res.json({
         success: true,
         data: {
+          ...cachedPayload,
           fullText: cached.response_text,
-          sections: parseSections(cached.response_text),
           bazi: { yearP, monthP, dayP, hourP, gender },
           cached: true
         }
       });
     }
 
-    // 调用 Murron API（个人解读只传 bazi，不传 target_bazi）
-    const resultText = await callMurronAPI({
+    const apiResult = await callMurronAPI({
       bazi: baziString,
       current_date: CURRENT_DATE
     }, user_id);
+    const { payload, rawText } = extractPersonalPayload(apiResult);
 
-    // 缓存结果
-    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)').run(user_id, 'personal', baziString, resultText);
+    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)').run(
+      user_id,
+      'personal',
+      baziString,
+      payload ? JSON.stringify(payload) : rawText
+    );
 
     return res.json({
       success: true,
       data: {
-        fullText: resultText,
-        sections: parseSections(resultText),
+        ...(payload || {}),
+        fullText: rawText,
         bazi: { yearP, monthP, dayP, hourP, gender },
         cached: false
       }
@@ -138,12 +217,10 @@ exports.getPersonalAnalysis = async (req, res) => {
   }
 };
 
-// 灵魂合盘
 exports.getCompatibilityAnalysis = async (req, res) => {
   try {
     const { user_id, target_user_id } = req.body;
 
-    // 双方都必须已审核
     const myTask = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(user_id);
     const targetTask = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(target_user_id);
 
@@ -173,7 +250,6 @@ exports.getCompatibilityAnalysis = async (req, res) => {
       targetFinal.hour_pillar || targetTask.bazi_hour_pillar
     );
 
-    // 检查缓存
     const cacheKey = `${myBazi}||${targetBazi}`;
     const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'compatibility' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, cacheKey);
     if (cached) {
@@ -187,11 +263,14 @@ exports.getCompatibilityAnalysis = async (req, res) => {
       });
     }
 
-    const resultText = await callMurronAPI({
+    const apiResult = await callMurronAPI({
       bazi: myBazi,
       target_bazi: targetBazi,
       current_date: CURRENT_DATE
     }, user_id);
+    const resultText = apiResult?.data?.outputs?.text
+      || apiResult?.outputs?.text
+      || (typeof apiResult === 'string' ? apiResult : JSON.stringify(apiResult));
 
     db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, target_bazi_input, response_text) VALUES (?, ?, ?, ?, ?)').run(user_id, 'compatibility', cacheKey, targetBazi, resultText);
 
@@ -209,7 +288,6 @@ exports.getCompatibilityAnalysis = async (req, res) => {
   }
 };
 
-// 十年大运分析（要求 bazi + current_luck_pillar + gender）
 exports.getDayunAnalysis = async (req, res) => {
   try {
     const { user_id } = req.body || {};
@@ -240,7 +318,6 @@ exports.getDayunAnalysis = async (req, res) => {
 
     const bazi = `${yearP} ${monthP} ${dayP} ${hourP}`;
     const cacheKey = `${bazi}||${currentLuckPillar}||${gender}`;
-
     const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'dayun' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, cacheKey);
     if (cached) {
       return res.json({

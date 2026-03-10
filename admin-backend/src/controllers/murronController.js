@@ -1,4 +1,4 @@
-﻿const axios = require('axios');
+const axios = require('axios');
 const { db } = require('../models/database');
 
 const MURRON_URL = process.env.MURRON_API_URL;
@@ -102,7 +102,22 @@ function normalizeTextValue(value) {
     .trim();
 }
 
-function normalizePersonalPayload(payload) {
+function normalizeObjectDeep(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeObjectDeep);
+  }
+  if (!value || typeof value !== 'object') {
+    return normalizeTextValue(value);
+  }
+
+  const output = {};
+  Object.keys(value).forEach((key) => {
+    output[key] = normalizeObjectDeep(value[key]);
+  });
+  return output;
+}
+
+function normalizeLegacyPersonalPayload(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
   return {
@@ -118,6 +133,14 @@ function normalizePersonalPayload(payload) {
   };
 }
 
+function normalizeStructuredPersonalPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!payload.chapter_1_character_analysis && !payload.chapter_2_partner_profile && !payload.chapter_4_annual_fortune) {
+    return null;
+  }
+  return normalizeObjectDeep(payload);
+}
+
 function extractPersonalPayload(apiResponse) {
   const outputs = apiResponse?.data?.outputs || apiResponse?.outputs || {};
   const candidates = [
@@ -131,10 +154,18 @@ function extractPersonalPayload(apiResponse) {
 
   for (const item of candidates) {
     const parsed = tryParseJson(item);
-    const normalized = normalizePersonalPayload(parsed);
-    if (normalized && (normalized.strong_or_weak || normalized.title || normalized.social_camouflage)) {
+    const structured = normalizeStructuredPersonalPayload(parsed);
+    if (structured) {
       return {
-        payload: normalized,
+        payload: structured,
+        rawText: typeof item === 'string' ? item : JSON.stringify(parsed)
+      };
+    }
+
+    const legacy = normalizeLegacyPersonalPayload(parsed);
+    if (legacy && (legacy.strong_or_weak || legacy.title || legacy.social_camouflage)) {
+      return {
+        payload: legacy,
         rawText: typeof item === 'string' ? item : JSON.stringify(parsed)
       };
     }
@@ -153,10 +184,7 @@ function extractPersonalPayload(apiResponse) {
 
 function parseCachedPersonalPayload(text) {
   const parsed = tryParseJson(text);
-  const normalized = normalizePersonalPayload(parsed);
-  return normalized && (normalized.strong_or_weak || normalized.title || normalized.social_camouflage)
-    ? normalized
-    : null;
+  return normalizeStructuredPersonalPayload(parsed) || normalizeLegacyPersonalPayload(parsed);
 }
 
 exports.getPersonalAnalysis = async (req, res) => {

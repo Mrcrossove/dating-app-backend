@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Ensure `.env` is loaded no matter where PM2 is started from.
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import express from 'express';
@@ -22,41 +21,52 @@ if (!jwtSecret || jwtSecret === 'your_super_secret_key') {
   throw new Error('JWT_SECRET is missing or insecure. Please set a strong JWT_SECRET in environment variables.');
 }
 
-// Security middleware
 app.use(helmet({
-  contentSecurityPolicy: isProduction ? undefined : false, // 开发环境禁用CSP
-  crossOriginEmbedderPolicy: false, // 允许嵌入资源
+  contentSecurityPolicy: isProduction ? undefined : false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false
 }));
 
-// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15分钟
-  max: 100, // 每IP限制100请求
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: '请求过于频繁，请稍后重试' },
-  skip: (req: express.Request) => req.method === 'OPTIONS',
+  skip: (req: express.Request) => req.method === 'OPTIONS'
 });
 app.use('/api/', limiter);
 
-// CORS configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:8081', 'http://localhost:3000'];
 app.use(cors({
-    origin: isProduction ? allowedOrigins : '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: isProduction ? allowedOrigins : '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Body parser limits
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-app.use('/uploads', express.static(uploadDir));
 
-// Preflight request handling - fixed for Express 5
+app.use('/uploads', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  res.removeHeader('Cross-Origin-Resource-Policy');
+  res.removeHeader('Content-Security-Policy');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use('/uploads', express.static(uploadDir, {
+  setHeaders: (res) => {
+    res.removeHeader('Cross-Origin-Resource-Policy');
+    res.removeHeader('Content-Security-Policy');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+}));
+
 app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', 'http://localhost:8081');
@@ -99,14 +109,11 @@ const ensurePostColumns = async () => {
   await sql('ALTER TABLE posts ADD COLUMN comments_count INTEGER DEFAULT 0;');
 };
 
-// Sync database and start server
 const startServer = async () => {
   try {
     await sequelize.authenticate();
     console.log('Database connected.');
-    
-    // In production, use migrations instead of sync({ force: true })
-    // force: false ensures tables are created if not exist, but doesn't drop them
+
     await sequelize.sync({ force: false });
     await ensureUserColumns();
     await ensurePostColumns();
@@ -119,6 +126,7 @@ const startServer = async () => {
         .flat()
         .filter((net) => net && net.family === 'IPv4' && !net.internal)
         .map((net) => net!.address);
+
       if (networkIps.length) {
         networkIps.forEach((ip) => console.log(`Network: http://${ip}:${PORT}`));
       } else {

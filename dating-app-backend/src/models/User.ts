@@ -35,6 +35,7 @@ class User extends Model {
   public hometown!: string;
   public moments!: string;
   public wishes!: string;
+  public profile_extras!: string;
 
   // Login provider info
   public role!: string;
@@ -131,6 +132,7 @@ User.init(
     hometown: { type: DataTypes.STRING, allowNull: true },
     moments: { type: DataTypes.TEXT, allowNull: true },
     wishes: { type: DataTypes.TEXT, allowNull: true },
+    profile_extras: { type: DataTypes.TEXT, allowNull: true },
 
     // Login provider info
     role: { 

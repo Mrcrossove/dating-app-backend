@@ -89,6 +89,7 @@ app.use('/api', routes);
 const ensureUserColumns = async () => {
   const sql = (s: string) => sequelize.query(s).catch(() => undefined);
   await sql('DROP TABLE IF EXISTS users_backup;');
+  await sql('ALTER TABLE users ADD COLUMN profile_extras TEXT;');
   await sql('ALTER TABLE users ADD COLUMN moments TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wishes TEXT;');
   await sql('ALTER TABLE users ADD COLUMN nickname TEXT;');

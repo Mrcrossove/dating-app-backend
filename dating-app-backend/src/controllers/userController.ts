@@ -333,6 +333,7 @@ export const getPublicProfile = async (req: AuthRequest, res: Response) => {
         'school',
         'company',
         'hometown',
+        'profile_extras',
         'moments',
         'wishes',
         'avatar_url',
@@ -415,7 +416,7 @@ export const getPhotoWall = async (req: AuthRequest, res: Response) => {
 const ALLOWED_PROFILE_FIELDS = [
   'mbti', 'interests', 'love_view', 'job', 'height', 'education',
   'constellation', 'intro', 'username', 'school', 'company', 'hometown',
-  'gender', 'birth_date', 'moments', 'wishes', 'nickname'
+  'gender', 'birth_date', 'moments', 'wishes', 'nickname', 'profile_extras'
 ] as const;
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {

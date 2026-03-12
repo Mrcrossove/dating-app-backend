@@ -21,6 +21,12 @@ router.post('/internal/murron/dayun', murronCtrl.getDayunAnalysis);
 router.get('/admin/profile', adminAuth, authCtrl.getProfile);
 router.post('/admin/create-admin', adminAuth, superAuth, authCtrl.createAdmin);
 
+router.get('/admin/reviews/dashboard', adminAuth, verifyCtrl.getDashboard);
+router.get('/admin/reviews/users', adminAuth, verifyCtrl.getReviewUsers);
+router.get('/admin/reviews/users/:userId', adminAuth, verifyCtrl.getReviewUserDetail);
+router.post('/admin/reviews/users/:userId/:type/approve', adminAuth, verifyCtrl.approveReviewItem);
+router.post('/admin/reviews/users/:userId/:type/reject', adminAuth, verifyCtrl.rejectReviewItem);
+
 router.get('/admin/verification/list', adminAuth, verifyCtrl.getPendingList);
 router.get('/admin/verification/stats', adminAuth, verifyCtrl.getStats);
 router.get('/admin/verification/:id', adminAuth, verifyCtrl.getTaskDetail);

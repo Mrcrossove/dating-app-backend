@@ -1,0 +1,6 @@
+node_modules/
+admin.db
+admin.db-shm
+admin.db-wal
+.env
+runtime.log

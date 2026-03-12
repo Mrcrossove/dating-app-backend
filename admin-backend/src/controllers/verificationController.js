@@ -1,6 +1,310 @@
 const { db } = require('../models/database');
 
-// 获取待审核列表
+const TYPE_ORDER = ['bazi_review', 'real_name', 'company', 'education'];
+const TYPE_LABELS = {
+  bazi_review: '八字审核',
+  real_name: '真人认证',
+  company: '工作认证',
+  education: '学历认证'
+};
+
+function safeParse(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeTask(task) {
+  if (!task) return null;
+  return {
+    ...task,
+    submitted_data: safeParse(task.submitted_data),
+    reviewed_data: safeParse(task.reviewed_data)
+  };
+}
+
+function sortByPriority(list) {
+  return [...list].sort((a, b) => {
+    const score = (status) => {
+      if (status === 'pending') return 3;
+      if (status === 'approved') return 2;
+      if (status === 'rejected') return 1;
+      return 0;
+    };
+    const diff = score(b.status) - score(a.status);
+    if (diff !== 0) return diff;
+    return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  });
+}
+
+function pickTaskByPriority(tasks, type) {
+  const list = tasks.filter((task) => task.type === type);
+  if (!list.length) return null;
+  return sortByPriority(list)[0];
+}
+
+function buildUserAggregate(tasks) {
+  if (!tasks.length) return null;
+  const normalizedTasks = tasks.map(normalizeTask);
+  const first = normalizedTasks[0];
+  const byType = {};
+
+  TYPE_ORDER.forEach((type) => {
+    byType[type] = pickTaskByPriority(normalizedTasks, type);
+  });
+
+  const statuses = TYPE_ORDER.map((type) => byType[type]?.status).filter(Boolean);
+  const pendingCount = statuses.filter((status) => status === 'pending').length;
+  const approvedCount = statuses.filter((status) => status === 'approved').length;
+  const rejectedCount = statuses.filter((status) => status === 'rejected').length;
+
+  return {
+    user_id: first.user_id,
+    nickname: first.nickname || '',
+    latest_submitted_at: normalizedTasks
+      .map((task) => task.created_at)
+      .filter(Boolean)
+      .sort((a, b) => String(b).localeCompare(String(a)))[0] || '',
+    pending_count: pendingCount,
+    approved_count: approvedCount,
+    rejected_count: rejectedCount,
+    overall_status: pendingCount > 0 ? 'pending' : rejectedCount > 0 ? 'rejected' : approvedCount > 0 ? 'approved' : 'none',
+    tasks: byType
+  };
+}
+
+function getUserTasks(userId) {
+  const rows = db
+    .prepare('SELECT * FROM verification_tasks WHERE user_id = ? ORDER BY created_at DESC')
+    .all(userId);
+  return rows.map(normalizeTask);
+}
+
+function getTaskForReview(userId, type) {
+  const task = db
+    .prepare(
+      `SELECT * FROM verification_tasks
+       WHERE user_id = ? AND type = ?
+       ORDER BY
+         CASE status
+           WHEN 'pending' THEN 3
+           WHEN 'approved' THEN 2
+           WHEN 'rejected' THEN 1
+           ELSE 0
+         END DESC,
+         created_at DESC
+       LIMIT 1`
+    )
+    .get(userId, type);
+  return normalizeTask(task);
+}
+
+function applyApprove(task, adminId, body) {
+  const note = body.note || '';
+  if (task.type === 'bazi_review') {
+    const reviewedData = {
+      year_pillar: body.year_pillar || task.bazi_year_pillar,
+      month_pillar: body.month_pillar || task.bazi_month_pillar,
+      day_pillar: body.day_pillar || task.bazi_day_pillar,
+      hour_pillar: body.hour_pillar || task.bazi_hour_pillar,
+      current_luck_pillar: body.current_luck_pillar || task.current_luck_pillar || '',
+      gender: body.gender || task.gender || ''
+    };
+
+    db.prepare(`
+      UPDATE verification_tasks
+      SET status = 'approved',
+          bazi_year_pillar = ?, bazi_month_pillar = ?, bazi_day_pillar = ?, bazi_hour_pillar = ?,
+          current_luck_pillar = ?, gender = ?, reviewed_data = ?, reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      reviewedData.year_pillar,
+      reviewedData.month_pillar,
+      reviewedData.day_pillar,
+      reviewedData.hour_pillar,
+      reviewedData.current_luck_pillar,
+      reviewedData.gender,
+      JSON.stringify(reviewedData),
+      adminId,
+      note,
+      task.id
+    );
+    return;
+  }
+
+  db.prepare(`
+    UPDATE verification_tasks
+    SET status = 'approved', reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
+    WHERE id = ?
+  `).run(adminId, note, task.id);
+}
+
+function applyReject(task, adminId, body) {
+  const note = body.note || '审核未通过';
+  db.prepare(`
+    UPDATE verification_tasks
+    SET status = 'rejected', reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
+    WHERE id = ?
+  `).run(adminId, note, task.id);
+}
+
+function buildDashboardData() {
+  const allTasks = db.prepare('SELECT * FROM verification_tasks ORDER BY created_at DESC').all();
+  const userMap = new Map();
+
+  allTasks.forEach((task) => {
+    const userId = String(task.user_id);
+    const list = userMap.get(userId) || [];
+    list.push(task);
+    userMap.set(userId, list);
+  });
+
+  const users = [...userMap.values()].map(buildUserAggregate).filter(Boolean);
+  const totalUsers = users.length;
+  const pendingUsers = users.filter((item) => item.pending_count > 0).length;
+  const approvedUsers = users.filter((item) => item.pending_count === 0 && item.rejected_count === 0 && item.approved_count > 0).length;
+  const rejectedUsers = users.filter((item) => item.pending_count === 0 && item.rejected_count > 0).length;
+  const totalReviewed = approvedUsers + rejectedUsers;
+  const approvalRate = totalReviewed > 0 ? Math.round((approvedUsers / totalReviewed) * 100) : 0;
+
+  const typeStats = TYPE_ORDER.map((type) => {
+    const rows = allTasks.filter((task) => task.type === type);
+    return {
+      type,
+      label: TYPE_LABELS[type],
+      total: rows.length,
+      pending: rows.filter((task) => task.status === 'pending').length,
+      approved: rows.filter((task) => task.status === 'approved').length,
+      rejected: rows.filter((task) => task.status === 'rejected').length
+    };
+  });
+
+  const statusBoard = [
+    { key: 'pending', label: '待审核', value: allTasks.filter((task) => task.status === 'pending').length },
+    { key: 'approved', label: '已通过', value: allTasks.filter((task) => task.status === 'approved').length },
+    { key: 'rejected', label: '已拒绝', value: allTasks.filter((task) => task.status === 'rejected').length }
+  ];
+
+  const recentSubmissions = allTasks.slice(0, 8).map((task) => ({
+    id: task.id,
+    user_id: task.user_id,
+    nickname: task.nickname || '',
+    type: task.type,
+    status: task.status,
+    created_at: task.created_at
+  }));
+
+  return {
+    totals: {
+      totalUsers,
+      pendingUsers,
+      approvedUsers,
+      rejectedUsers,
+      approvalRate
+    },
+    statusBoard,
+    typeStats,
+    recentSubmissions
+  };
+}
+
+exports.getDashboard = (req, res) => {
+  try {
+    return res.json({ success: true, data: buildDashboardData() });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getReviewUsers = (req, res) => {
+  try {
+    const { keyword = '', status = 'all' } = req.query;
+    const rows = db.prepare('SELECT * FROM verification_tasks ORDER BY created_at DESC').all();
+    const userMap = new Map();
+
+    rows.forEach((task) => {
+      const userId = String(task.user_id);
+      const list = userMap.get(userId) || [];
+      list.push(task);
+      userMap.set(userId, list);
+    });
+
+    let users = [...userMap.values()].map(buildUserAggregate).filter(Boolean);
+
+    const q = String(keyword || '').trim().toLowerCase();
+    if (q) {
+      users = users.filter((item) =>
+        String(item.nickname || '').toLowerCase().includes(q) ||
+        String(item.user_id || '').toLowerCase().includes(q)
+      );
+    }
+
+    if (status && status !== 'all') {
+      users = users.filter((item) => item.overall_status === status);
+    }
+
+    users.sort((a, b) => String(b.latest_submitted_at || '').localeCompare(String(a.latest_submitted_at || '')));
+
+    return res.json({ success: true, data: { list: users, total: users.length } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getReviewUserDetail = (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    if (!userId) return res.status(400).json({ success: false, message: '缺少 userId' });
+
+    const tasks = getUserTasks(userId);
+    if (!tasks.length) return res.status(404).json({ success: false, message: '用户审核记录不存在' });
+
+    const summary = buildUserAggregate(tasks);
+    return res.json({ success: true, data: { summary, timeline: tasks } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.approveReviewItem = (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const type = String(req.params.type || '').trim();
+    const task = getTaskForReview(userId, type);
+    if (!task) {
+      return res.status(404).json({ success: false, message: '审核项不存在' });
+    }
+    if (task.status === 'approved') {
+      return res.status(400).json({ success: false, message: '该审核项已通过' });
+    }
+
+    applyApprove(task, req.admin.id, req.body || {});
+    return res.json({ success: true, message: '审核通过' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.rejectReviewItem = (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const type = String(req.params.type || '').trim();
+    const task = getTaskForReview(userId, type);
+    if (!task) {
+      return res.status(404).json({ success: false, message: '审核项不存在' });
+    }
+
+    applyReject(task, req.admin.id, req.body || {});
+    return res.json({ success: true, message: '已拒绝' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// 兼容旧接口
 exports.getPendingList = (req, res) => {
   const { type, status = 'pending', page = 1, pageSize = 20 } = req.query;
   const offset = (page - 1) * pageSize;
@@ -16,7 +320,6 @@ exports.getPendingList = (req, res) => {
   res.json({ success: true, data: { list, total, page: Number(page), pageSize: Number(pageSize) } });
 };
 
-// 获取单条审核详情
 exports.getTaskDetail = (req, res) => {
   const task = db.prepare('SELECT * FROM verification_tasks WHERE id = ?').get(req.params.id);
   if (!task) {
@@ -25,7 +328,6 @@ exports.getTaskDetail = (req, res) => {
   res.json({ success: true, data: task });
 };
 
-// 审核通过（支持修改八字）
 exports.approveTask = (req, res) => {
   const task = db.prepare('SELECT * FROM verification_tasks WHERE id = ?').get(req.params.id);
   if (!task) {
@@ -36,52 +338,20 @@ exports.approveTask = (req, res) => {
     return res.status(400).json({ success: false, message: '该任务已审核通过，无法再次修改' });
   }
 
-  const { year_pillar, month_pillar, day_pillar, hour_pillar, current_luck_pillar, gender, note } = req.body;
-
-  const reviewedData = {};
-  if (task.type === 'bazi_review') {
-    reviewedData.year_pillar = year_pillar || task.bazi_year_pillar;
-    reviewedData.month_pillar = month_pillar || task.bazi_month_pillar;
-    reviewedData.day_pillar = day_pillar || task.bazi_day_pillar;
-    reviewedData.hour_pillar = hour_pillar || task.bazi_hour_pillar;
-    reviewedData.current_luck_pillar = current_luck_pillar || task.current_luck_pillar || '';
-    reviewedData.gender = gender || task.gender;
-
-    db.prepare(`
-      UPDATE verification_tasks 
-      SET status = 'approved', 
-          bazi_year_pillar = ?, bazi_month_pillar = ?, bazi_day_pillar = ?, bazi_hour_pillar = ?,
-          current_luck_pillar = ?, gender = ?, reviewed_data = ?, reviewer_id = ?, review_note = ?, reviewed_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      reviewedData.year_pillar, reviewedData.month_pillar, reviewedData.day_pillar, reviewedData.hour_pillar,
-      reviewedData.current_luck_pillar, reviewedData.gender, JSON.stringify(reviewedData), req.admin.id, note || '', task.id
-    );
-  } else {
-    db.prepare(`
-      UPDATE verification_tasks SET status = 'approved', reviewer_id = ?, review_note = ?, reviewed_at = datetime('now') WHERE id = ?
-    `).run(req.admin.id, note || '', task.id);
-  }
-
-  res.json({ success: true, message: '审核通过' });
+  applyApprove(task, req.admin.id, req.body || {});
+  return res.json({ success: true, message: '审核通过' });
 };
 
-// 审核拒绝
 exports.rejectTask = (req, res) => {
   const task = db.prepare('SELECT * FROM verification_tasks WHERE id = ?').get(req.params.id);
   if (!task) {
     return res.status(404).json({ success: false, message: '审核任务不存在' });
   }
 
-  const { note } = req.body;
-  db.prepare(`
-    UPDATE verification_tasks SET status = 'rejected', reviewer_id = ?, review_note = ?, reviewed_at = datetime('now') WHERE id = ?
-  `).run(req.admin.id, note || '审核未通过', task.id);
-
-  res.json({ success: true, message: '已拒绝' });
+  applyReject(task, req.admin.id, req.body || {});
+  return res.json({ success: true, message: '已拒绝' });
 };
 
-// 提交审核任务（供 dating-backend 调用）
 exports.submitTask = (req, res) => {
   const { user_id, nickname, type, bazi_year_pillar, bazi_month_pillar, bazi_day_pillar, bazi_hour_pillar, gender, birth_date, submitted_data } = req.body;
 
@@ -89,8 +359,6 @@ exports.submitTask = (req, res) => {
     return res.status(400).json({ success: false, message: '缺少必要参数' });
   }
 
-  // 同类型待审核任务去重
-  // 八字一旦审核通过，不允许再次提交/修改（避免四柱被改动）
   if (type === 'bazi_review') {
     const approved = db
       .prepare("SELECT id FROM verification_tasks WHERE user_id = ? AND type = ? AND status = 'approved' LIMIT 1")
@@ -103,11 +371,21 @@ exports.submitTask = (req, res) => {
   const existing = db.prepare('SELECT id FROM verification_tasks WHERE user_id = ? AND type = ? AND status = ?').get(user_id, type, 'pending');
   if (existing) {
     db.prepare(`
-      UPDATE verification_tasks 
+      UPDATE verification_tasks
       SET bazi_year_pillar = ?, bazi_month_pillar = ?, bazi_day_pillar = ?, bazi_hour_pillar = ?,
           gender = ?, birth_date = ?, submitted_data = ?, nickname = ?, created_at = datetime('now')
       WHERE id = ?
-    `).run(bazi_year_pillar, bazi_month_pillar, bazi_day_pillar, bazi_hour_pillar, gender, birth_date, JSON.stringify(submitted_data || {}), nickname || '', existing.id);
+    `).run(
+      bazi_year_pillar,
+      bazi_month_pillar,
+      bazi_day_pillar,
+      bazi_hour_pillar,
+      gender,
+      birth_date,
+      JSON.stringify(submitted_data || {}),
+      nickname || '',
+      existing.id
+    );
 
     return res.json({ success: true, data: { id: existing.id, status: 'pending' } });
   }
@@ -115,42 +393,32 @@ exports.submitTask = (req, res) => {
   const result = db.prepare(`
     INSERT INTO verification_tasks (user_id, nickname, type, bazi_year_pillar, bazi_month_pillar, bazi_day_pillar, bazi_hour_pillar, gender, birth_date, submitted_data)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(user_id, nickname || '', type, bazi_year_pillar, bazi_month_pillar, bazi_day_pillar, bazi_hour_pillar, gender, birth_date, JSON.stringify(submitted_data || {}));
+  `).run(
+    user_id,
+    nickname || '',
+    type,
+    bazi_year_pillar,
+    bazi_month_pillar,
+    bazi_day_pillar,
+    bazi_hour_pillar,
+    gender,
+    birth_date,
+    JSON.stringify(submitted_data || {})
+  );
 
   res.json({ success: true, data: { id: result.lastInsertRowid, status: 'pending' } });
 };
 
-// get user review status
 exports.getUserReviewStatus = (req, res) => {
   const { user_id } = req.params;
   const tasks = db
     .prepare('SELECT * FROM verification_tasks WHERE user_id = ? ORDER BY created_at DESC')
     .all(user_id);
 
-  const pickTaskByPriority = (type) => {
-    const list = tasks.filter((t) => t.type === type);
-    if (!list.length) return null;
-    return (
-      list.find((t) => t.status === 'approved') ||
-      list.find((t) => t.status === 'pending') ||
-      list.find((t) => t.status === 'rejected') ||
-      list[0]
-    );
-  };
-
-  const safeParse = (text) => {
-    if (!text) return null;
-    try {
-      return JSON.parse(text);
-    } catch (_) {
-      return null;
-    }
-  };
-
-  const baziTask = pickTaskByPriority('bazi_review');
-  const educationTask = pickTaskByPriority('education');
-  const companyTask = pickTaskByPriority('company');
-  const realNameTask = pickTaskByPriority('real_name');
+  const baziTask = pickTaskByPriority(tasks, 'bazi_review');
+  const educationTask = pickTaskByPriority(tasks, 'education');
+  const companyTask = pickTaskByPriority(tasks, 'company');
+  const realNameTask = pickTaskByPriority(tasks, 'real_name');
 
   const reviewedData = safeParse(baziTask?.reviewed_data);
 
@@ -176,15 +444,10 @@ exports.getUserReviewStatus = (req, res) => {
   res.json({ success: true, data: result });
 };
 
-// stats overview
 exports.getStats = (req, res) => {
-  const pending = db.prepare("SELECT COUNT(*) as count FROM verification_tasks WHERE status = 'pending'").get().count;
-  const approved = db.prepare("SELECT COUNT(*) as count FROM verification_tasks WHERE status = 'approved'").get().count;
-  const rejected = db.prepare("SELECT COUNT(*) as count FROM verification_tasks WHERE status = 'rejected'").get().count;
-
-  const byType = db.prepare(`
-    SELECT type, status, COUNT(*) as count FROM verification_tasks GROUP BY type, status
-  `).all();
-
-  res.json({ success: true, data: { pending, approved, rejected, byType } });
+  try {
+    return res.json({ success: true, data: buildDashboardData() });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };

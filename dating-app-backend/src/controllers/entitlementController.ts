@@ -52,3 +52,30 @@ export const unlockEntitlement = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const grantEntitlements = async (req: AuthRequest, res: Response) => {
+  try {
+    const { target_user_id, product_keys } = req.body || {};
+    const targetUserId = String(target_user_id || '').trim();
+    const keys = Array.isArray(product_keys) ? product_keys.filter((x) => isProductKey(x)) : [];
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: 'Invalid target_user_id' });
+    }
+    if (keys.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid product_keys' });
+    }
+
+    await Promise.all(
+      keys.map((product_key) =>
+        Entitlement.findOrCreate({
+          where: { user_id: targetUserId, product_key },
+          defaults: { user_id: targetUserId, product_key } as any
+        })
+      )
+    );
+
+    return res.json({ success: true, data: { target_user_id: targetUserId, product_keys: keys } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

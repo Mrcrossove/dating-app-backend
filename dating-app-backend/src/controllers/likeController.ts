@@ -58,7 +58,7 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url'],
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job'],
         include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
       }],
       order: [['created_at', 'DESC']]
@@ -71,6 +71,8 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
         username: like.user.nickname || like.user.username,
         gender: like.user.gender,
         birth_date: like.user.birth_date,
+        hometown: like.user.hometown || '',
+        job: like.user.job || '',
         photo: like.user.photos?.[0]?.url || like.user.avatar_url || null
       },
       created_at: like.created_at
@@ -98,7 +100,7 @@ export const getMatches = async (req: AuthRequest, res: Response) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url'],
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job'],
         include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
       }],
       order: [['created_at', 'DESC']]
@@ -110,6 +112,8 @@ export const getMatches = async (req: AuthRequest, res: Response) => {
         username: like.user.nickname || like.user.username,
         gender: like.user.gender,
         birth_date: like.user.birth_date,
+        hometown: like.user.hometown || '',
+        job: like.user.job || '',
         photo: like.user.photos?.[0]?.url || like.user.avatar_url || null
       },
       matched_at: like.created_at
@@ -159,7 +163,7 @@ export const getMyLikes = async (req: AuthRequest, res: Response) => {
             include: [{ 
                 model: User, 
                 as: 'target_user',
-                attributes: ['id', 'username', 'gender', 'birth_date'],
+                attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'hometown', 'job', 'avatar_url'],
                 include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
             }]
         });
@@ -169,10 +173,15 @@ export const getMyLikes = async (req: AuthRequest, res: Response) => {
             id: like.id,
             user: {
                 id: like.target_user.id,
-                username: like.target_user.username,
+                username: like.target_user.nickname || like.target_user.username,
                 gender: like.target_user.gender,
                 birth_date: like.target_user.birth_date,
-                photo: like.target_user.photos && like.target_user.photos.length > 0 ? like.target_user.photos[0].url : null
+                hometown: like.target_user.hometown || '',
+                job: like.target_user.job || '',
+                photo:
+                  like.target_user.photos && like.target_user.photos.length > 0
+                    ? like.target_user.photos[0].url
+                    : like.target_user.avatar_url || null
             },
             created_at: like.created_at
         }));

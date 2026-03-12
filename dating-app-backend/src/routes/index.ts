@@ -95,6 +95,7 @@ router.post('/user/posts', authenticateToken, postController.createPost);
 router.get('/user/:userId/posts', authenticateToken, postController.getUserPosts);
 router.get('/posts/feed', authenticateToken, postController.getFeed);
 router.get('/posts/:id', authenticateToken, postController.getPostDetail);
+router.delete('/posts/:id', authenticateToken, postController.deletePost);
 router.post('/posts/:id/like', authenticateToken, postController.likePost);
 router.delete('/posts/:id/like', authenticateToken, postController.unlikePost);
 router.get('/posts/:id/comments', authenticateToken, postController.getComments);
@@ -110,6 +111,7 @@ router.post('/feedback', authenticateToken, feedbackController.submitFeedback);
 // Entitlements (test mode: unlock without real payment)
 router.get('/entitlements', authenticateToken, entitlementController.getEntitlements);
 router.post('/entitlements/unlock', authenticateToken, entitlementController.unlockEntitlement);
+router.post('/entitlements/grant', authenticateToken, entitlementController.grantEntitlements);
 
 // Message Routes
 router.get('/messages', authenticateToken, userController.getConversations);

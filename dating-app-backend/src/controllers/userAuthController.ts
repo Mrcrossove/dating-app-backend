@@ -1,8 +1,11 @@
 import { Response } from 'express';
 import crypto from 'crypto';
+import axios from 'axios';
 import { AuthRequest } from '../middleware/auth';
 import { AuthRecord, Verification, User } from '../models';
 import { parseBirthDateInput } from '../utils/birthDate';
+
+const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 
 const sha256 = (text: string) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -26,32 +29,71 @@ const upsertAuthRecord = async (userId: string, type: 'real_name' | 'company' | 
   });
 };
 
+const submitAdminVerificationTask = async (params: {
+  userId: string;
+  nickname: string;
+  type: 'real_name' | 'company' | 'education';
+  submittedData: Record<string, any>;
+}) => {
+  const { userId, nickname, type, submittedData } = params;
+  await axios.post(
+    `${ADMIN_BACKEND_URL}/api/internal/verification/submit`,
+    {
+      user_id: userId,
+      nickname,
+      type,
+      submitted_data: submittedData
+    },
+    { timeout: 15000 }
+  );
+};
+
 export const getAuthStatus = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
 
-    const [verification, records] = await Promise.all([
+    const [verification, records, adminStatusRes] = await Promise.all([
       Verification.findOne({ where: { user_id: userId } }),
       AuthRecord.findAll({ where: { user_id: userId } }),
+      axios
+        .get(`${ADMIN_BACKEND_URL}/api/internal/verification/user/${userId}/status`, { timeout: 10000 })
+        .catch(() => ({ data: { data: null } }))
     ]);
 
     const byType = new Map<string, any>();
     records.forEach((r: any) => byType.set(r.type, r));
 
-    const realNameApproved = (verification && verification.status === 'approved') || (byType.get('real_name')?.status === 'approved');
-    const companyApproved = byType.get('company')?.status === 'approved';
-    const educationApproved = byType.get('education')?.status === 'approved';
+    const adminDetail = adminStatusRes?.data?.data || {};
+    const realNameStatus = adminDetail.real_name || byType.get('real_name')?.status || (verification ? verification.status : 'none');
+    const companyStatus = adminDetail.company || byType.get('company')?.status || 'none';
+    const educationStatus = adminDetail.education || byType.get('education')?.status || 'none';
+
+    await Promise.all([
+      realNameStatus && realNameStatus !== 'none'
+        ? upsertAuthRecord(userId, 'real_name', realNameStatus === 'approved' ? 'approved' : realNameStatus === 'rejected' ? 'rejected' : 'pending', {})
+        : Promise.resolve(),
+      companyStatus && companyStatus !== 'none'
+        ? upsertAuthRecord(userId, 'company', companyStatus === 'approved' ? 'approved' : companyStatus === 'rejected' ? 'rejected' : 'pending', {})
+        : Promise.resolve(),
+      educationStatus && educationStatus !== 'none'
+        ? upsertAuthRecord(userId, 'education', educationStatus === 'approved' ? 'approved' : educationStatus === 'rejected' ? 'rejected' : 'pending', {})
+        : Promise.resolve()
+    ]);
+
+    if (realNameStatus === 'approved') {
+      await User.update({ is_verified: true }, { where: { id: userId } }).catch(() => undefined);
+    }
 
     return res.status(200).json({
       success: true,
       data: {
-        realName: !!realNameApproved,
-        company: !!companyApproved,
-        education: !!educationApproved,
+        realName: realNameStatus === 'approved',
+        company: companyStatus === 'approved',
+        education: educationStatus === 'approved',
         detail: {
-          real_name: byType.get('real_name')?.status || (verification ? verification.status : 'none'),
-          company: byType.get('company')?.status || 'none',
-          education: byType.get('education')?.status || 'none',
+          real_name: realNameStatus,
+          company: companyStatus,
+          education: educationStatus,
         },
       },
     });
@@ -63,6 +105,7 @@ export const getAuthStatus = async (req: AuthRequest, res: Response) => {
 export const submitRealNameAuth = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    const user = await User.findByPk(userId);
     const realName = String(req.body?.realName || '').trim();
     const idCard = String(req.body?.idCard || '').trim();
     const birth_date = String(req.body?.birth_date || '').trim();
@@ -76,8 +119,7 @@ export const submitRealNameAuth = async (req: AuthRequest, res: Response) => {
       idHash: sha256(idCard),
     };
 
-    await upsertAuthRecord(userId, 'real_name', 'approved', payload);
-    await User.update({ is_verified: true }, { where: { id: userId } });
+    await upsertAuthRecord(userId, 'real_name', 'pending', payload);
     if (birth_date) {
       const parsedBirthDate = parseBirthDateInput(birth_date);
       if (parsedBirthDate) {
@@ -85,7 +127,17 @@ export const submitRealNameAuth = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    return res.status(200).json({ success: true, data: { status: 'approved' } });
+    await submitAdminVerificationTask({
+      userId,
+      nickname: user?.getDataValue('nickname') || user?.getDataValue('username') || '',
+      type: 'real_name',
+      submittedData: {
+        realName,
+        idLast4: idCard.slice(-4)
+      }
+    });
+
+    return res.status(200).json({ success: true, data: { status: 'pending' } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -94,6 +146,7 @@ export const submitRealNameAuth = async (req: AuthRequest, res: Response) => {
 export const submitCompanyAuth = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    const user = await User.findByPk(userId);
     const company = String(req.body?.company || '').trim();
     const position = String(req.body?.position || '').trim();
     const email = String(req.body?.email || '').trim();
@@ -105,6 +158,12 @@ export const submitCompanyAuth = async (req: AuthRequest, res: Response) => {
 
     const payload = { company, position, email, imageUrl };
     await upsertAuthRecord(userId, 'company', 'pending', payload);
+    await submitAdminVerificationTask({
+      userId,
+      nickname: user?.getDataValue('nickname') || user?.getDataValue('username') || '',
+      type: 'company',
+      submittedData: payload
+    });
     return res.status(200).json({ success: true, data: { status: 'pending' } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
@@ -114,6 +173,7 @@ export const submitCompanyAuth = async (req: AuthRequest, res: Response) => {
 export const submitEducationAuth = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    const user = await User.findByPk(userId);
     const school = String(req.body?.school || '').trim();
     const degree = String(req.body?.degree || '').trim();
     const code = String(req.body?.code || '').trim();
@@ -125,6 +185,12 @@ export const submitEducationAuth = async (req: AuthRequest, res: Response) => {
 
     const payload = { school, degree, code: code ? 'provided' : '', imageUrl };
     await upsertAuthRecord(userId, 'education', 'pending', payload);
+    await submitAdminVerificationTask({
+      userId,
+      nickname: user?.getDataValue('nickname') || user?.getDataValue('username') || '',
+      type: 'education',
+      submittedData: payload
+    });
     return res.status(200).json({ success: true, data: { status: 'pending' } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });

@@ -352,3 +352,29 @@ export const getComments = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const deletePost = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = String(req.user.id);
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
+
+    const post = await Post.findByPk(id);
+    if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
+    if (String((post as any).user_id) !== userId) {
+      return res.status(403).json({ success: false, message: 'No permission to delete this post' });
+    }
+
+    await Promise.all([
+      PostLike.destroy({ where: { post_id: id } }).catch(() => undefined),
+      PostComment.destroy({ where: { post_id: id } }).catch(() => undefined),
+      PostView.destroy({ where: { post_id: id } }).catch(() => undefined)
+    ]);
+
+    await post.destroy();
+
+    return res.status(200).json({ success: true, message: 'Deleted' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

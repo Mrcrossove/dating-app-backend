@@ -13,43 +13,49 @@ function buildBaziString(gender, yearPillar, monthPillar, dayPillar, hourPillar)
 }
 
 async function callMurronAPI(inputs, userId) {
-  const response = await axios.post(MURRON_URL, {
-    inputs,
-    response_mode: 'blocking',
-    user: userId || 'system'
-  }, {
-    headers: {
-      Authorization: `Bearer ${MURRON_KEY}`,
-      'Content-Type': 'application/json'
+  const response = await axios.post(
+    MURRON_URL,
+    {
+      inputs,
+      response_mode: 'blocking',
+      user: userId || 'system'
     },
-    timeout: 120000
-  });
+    {
+      headers: {
+        Authorization: `Bearer ${MURRON_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    }
+  );
 
   return response.data;
 }
 
 async function callDayunAPI(inputs, userId) {
-  const response = await axios.post(DAYUN_URL, {
-    inputs,
-    response_mode: 'blocking',
-    user: userId || 'system'
-  }, {
-    headers: {
-      Authorization: `Bearer ${DAYUN_KEY}`,
-      'Content-Type': 'application/json'
+  const response = await axios.post(
+    DAYUN_URL,
+    {
+      inputs,
+      response_mode: 'blocking',
+      user: userId || 'system'
     },
-    timeout: 120000
-  });
+    {
+      headers: {
+        Authorization: `Bearer ${DAYUN_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 120000
+    }
+  );
 
-  return response.data?.data?.outputs?.res
-    || response.data?.outputs?.res
-    || response.data?.data?.outputs?.text
-    || response.data?.outputs?.text
-    || (typeof response.data === 'string' ? response.data : JSON.stringify(response.data));
+  return response.data;
 }
 
 function parseSections(text) {
-  const source = String(text || '');
+  const source = String(text || '').trim();
+  if (!source) return {};
+
   const sections = {};
   const sectionPatterns = [
     { key: 'characterAnalysis', start: '### 一、', end: '### 二、' },
@@ -58,17 +64,15 @@ function parseSections(text) {
     { key: 'fortune2026', start: '### 四、', end: null }
   ];
 
-  for (const { key, start, end } of sectionPatterns) {
+  sectionPatterns.forEach(({ key, start, end }) => {
     const startIdx = source.indexOf(start);
-    if (startIdx === -1) continue;
+    if (startIdx === -1) return;
     const endIdx = end ? source.indexOf(end, startIdx) : source.length;
     sections[key] = source.substring(startIdx, endIdx === -1 ? source.length : endIdx).trim();
-  }
+  });
 
-  const basicIdx = source.indexOf('**【基础信息锁定】**');
-  if (basicIdx !== -1) {
-    const nextSection = source.indexOf('### 一、', basicIdx);
-    sections.basicInfo = source.substring(basicIdx, nextSection === -1 ? source.length : nextSection).trim();
+  if (!sections.compatibility) {
+    sections.compatibility = source;
   }
 
   return sections;
@@ -141,7 +145,23 @@ function normalizeStructuredPersonalPayload(payload) {
   return normalizeObjectDeep(payload);
 }
 
-function extractPersonalPayload(apiResponse) {
+function normalizeStructuredCompatibilityPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!payload.chapter_3_soul_synastry && !payload.score_board && !payload.keywords) {
+    return null;
+  }
+  return normalizeObjectDeep(payload);
+}
+
+function normalizeStructuredDayunPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  if (!payload.dazhu_analysis) {
+    return null;
+  }
+  return normalizeObjectDeep(payload);
+}
+
+function extractPayload(apiResponse, matcher) {
   const outputs = apiResponse?.data?.outputs || apiResponse?.outputs || {};
   const candidates = [
     outputs.json,
@@ -154,27 +174,20 @@ function extractPersonalPayload(apiResponse) {
 
   for (const item of candidates) {
     const parsed = tryParseJson(item);
-    const structured = normalizeStructuredPersonalPayload(parsed);
-    if (structured) {
+    const matched = matcher(parsed);
+    if (matched) {
       return {
-        payload: structured,
-        rawText: typeof item === 'string' ? item : JSON.stringify(parsed)
-      };
-    }
-
-    const legacy = normalizeLegacyPersonalPayload(parsed);
-    if (legacy && (legacy.strong_or_weak || legacy.title || legacy.social_camouflage)) {
-      return {
-        payload: legacy,
+        payload: matched,
         rawText: typeof item === 'string' ? item : JSON.stringify(parsed)
       };
     }
   }
 
-  const fallbackText = outputs.text
-    || outputs.res
-    || outputs.result
-    || (typeof apiResponse === 'string' ? apiResponse : JSON.stringify(apiResponse));
+  const fallbackText =
+    outputs.text ||
+    outputs.res ||
+    outputs.result ||
+    (typeof apiResponse === 'string' ? apiResponse : JSON.stringify(apiResponse));
 
   return {
     payload: null,
@@ -182,28 +195,75 @@ function extractPersonalPayload(apiResponse) {
   };
 }
 
+function extractPersonalPayload(apiResponse) {
+  return extractPayload(apiResponse, (parsed) => {
+    const structured = normalizeStructuredPersonalPayload(parsed);
+    if (structured) return structured;
+
+    const legacy = normalizeLegacyPersonalPayload(parsed);
+    if (legacy && (legacy.strong_or_weak || legacy.title || legacy.social_camouflage)) {
+      return legacy;
+    }
+    return null;
+  });
+}
+
+function extractCompatibilityPayload(apiResponse) {
+  return extractPayload(apiResponse, (parsed) => normalizeStructuredCompatibilityPayload(parsed));
+}
+
+function extractDayunPayload(apiResponse) {
+  return extractPayload(apiResponse, (parsed) => normalizeStructuredDayunPayload(parsed));
+}
+
 function parseCachedPersonalPayload(text) {
   const parsed = tryParseJson(text);
   return normalizeStructuredPersonalPayload(parsed) || normalizeLegacyPersonalPayload(parsed);
 }
 
+function parseCachedCompatibilityPayload(text) {
+  const parsed = tryParseJson(text);
+  return normalizeStructuredCompatibilityPayload(parsed);
+}
+
+function parseCachedDayunPayload(text) {
+  const parsed = tryParseJson(text);
+  return normalizeStructuredDayunPayload(parsed);
+}
+
+function getApprovedBaziTask(userId) {
+  return db
+    .prepare(
+      "SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1"
+    )
+    .get(userId);
+}
+
+function buildTaskBazi(task) {
+  const reviewed = task?.reviewed_data ? JSON.parse(task.reviewed_data) : task || {};
+  return {
+    gender: reviewed.gender || task.gender || 'male',
+    yearP: reviewed.year_pillar || task.bazi_year_pillar || '',
+    monthP: reviewed.month_pillar || task.bazi_month_pillar || '',
+    dayP: reviewed.day_pillar || task.bazi_day_pillar || '',
+    hourP: reviewed.hour_pillar || task.bazi_hour_pillar || ''
+  };
+}
+
 exports.getPersonalAnalysis = async (req, res) => {
   try {
     const { user_id } = req.body;
-    const task = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(user_id);
+    const task = getApprovedBaziTask(user_id);
     if (!task) {
       return res.status(400).json({ success: false, message: '八字信息尚未审核通过，请等待管理员确认' });
     }
 
-    const finalData = task.reviewed_data ? JSON.parse(task.reviewed_data) : task;
-    const yearP = finalData.year_pillar || task.bazi_year_pillar;
-    const monthP = finalData.month_pillar || task.bazi_month_pillar;
-    const dayP = finalData.day_pillar || task.bazi_day_pillar;
-    const hourP = finalData.hour_pillar || task.bazi_hour_pillar;
-    const gender = finalData.gender || task.gender;
+    const { gender, yearP, monthP, dayP, hourP } = buildTaskBazi(task);
     const baziString = buildBaziString(gender, yearP, monthP, dayP, hourP);
 
-    const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'personal' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, baziString);
+    const cached = db
+      .prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'personal' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1")
+      .get(user_id, baziString);
     const cachedPayload = cached ? parseCachedPersonalPayload(cached.response_text) : null;
     if (cached && cachedPayload) {
       return res.json({
@@ -217,18 +277,17 @@ exports.getPersonalAnalysis = async (req, res) => {
       });
     }
 
-    const apiResult = await callMurronAPI({
-      bazi: baziString,
-      current_date: CURRENT_DATE
-    }, user_id);
+    const apiResult = await callMurronAPI(
+      {
+        bazi: baziString,
+        current_date: CURRENT_DATE
+      },
+      user_id
+    );
     const { payload, rawText } = extractPersonalPayload(apiResult);
 
-    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)').run(
-      user_id,
-      'personal',
-      baziString,
-      payload ? JSON.stringify(payload) : rawText
-    );
+    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)')
+      .run(user_id, 'personal', baziString, payload ? JSON.stringify(payload) : rawText);
 
     return res.json({
       success: true,
@@ -247,66 +306,107 @@ exports.getPersonalAnalysis = async (req, res) => {
 
 exports.getCompatibilityAnalysis = async (req, res) => {
   try {
-    const { user_id, target_user_id } = req.body;
+    const { user_id, target_user_id, manual_target_bazi, manual_target_profile } = req.body || {};
 
-    const myTask = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(user_id);
-    const targetTask = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(target_user_id);
-
+    const myTask = getApprovedBaziTask(user_id);
     if (!myTask) {
       return res.status(400).json({ success: false, message: '你的八字信息尚未审核通过' });
     }
-    if (!targetTask) {
-      return res.status(400).json({ success: false, message: '对方的八字信息尚未审核通过' });
+
+    const myBaziData = buildTaskBazi(myTask);
+    const myBazi = buildBaziString(
+      myBaziData.gender,
+      myBaziData.yearP,
+      myBaziData.monthP,
+      myBaziData.dayP,
+      myBaziData.hourP
+    );
+
+    let targetBazi = '';
+    let targetProfile = null;
+
+    if (manual_target_bazi && typeof manual_target_bazi === 'object') {
+      const targetGender = manual_target_bazi.gender || 'male';
+      const yearP = manual_target_bazi.year_pillar || '';
+      const monthP = manual_target_bazi.month_pillar || '';
+      const dayP = manual_target_bazi.day_pillar || '';
+      const hourP = manual_target_bazi.hour_pillar || '';
+
+      targetBazi =
+        String(manual_target_bazi.bazi_text || '').trim() ||
+        buildBaziString(targetGender, yearP, monthP, dayP, hourP);
+
+      targetProfile = {
+        mode: 'manual',
+        name: String(manual_target_profile?.name || 'TA').trim() || 'TA',
+        gender: targetGender,
+        day_pillar: dayP,
+        birth_date: manual_target_profile?.birth_date || '',
+        birth_time: manual_target_profile?.birth_time || '',
+        birth_place: manual_target_profile?.birth_place || ''
+      };
+    } else {
+      const targetTask = getApprovedBaziTask(target_user_id);
+      if (!targetTask) {
+        return res.status(400).json({ success: false, message: '对方的八字信息尚未审核通过' });
+      }
+
+      const targetBaziData = buildTaskBazi(targetTask);
+      targetBazi = buildBaziString(
+        targetBaziData.gender,
+        targetBaziData.yearP,
+        targetBaziData.monthP,
+        targetBaziData.dayP,
+        targetBaziData.hourP
+      );
+
+      targetProfile = {
+        mode: 'user',
+        user_id: String(target_user_id || ''),
+        gender: targetBaziData.gender,
+        day_pillar: targetBaziData.dayP
+      };
     }
 
-    const myFinal = myTask.reviewed_data ? JSON.parse(myTask.reviewed_data) : myTask;
-    const targetFinal = targetTask.reviewed_data ? JSON.parse(targetTask.reviewed_data) : targetTask;
-
-    const myBazi = buildBaziString(
-      myFinal.gender || myTask.gender,
-      myFinal.year_pillar || myTask.bazi_year_pillar,
-      myFinal.month_pillar || myTask.bazi_month_pillar,
-      myFinal.day_pillar || myTask.bazi_day_pillar,
-      myFinal.hour_pillar || myTask.bazi_hour_pillar
-    );
-
-    const targetBazi = buildBaziString(
-      targetFinal.gender || targetTask.gender,
-      targetFinal.year_pillar || targetTask.bazi_year_pillar,
-      targetFinal.month_pillar || targetTask.bazi_month_pillar,
-      targetFinal.day_pillar || targetTask.bazi_day_pillar,
-      targetFinal.hour_pillar || targetTask.bazi_hour_pillar
-    );
-
     const cacheKey = `${myBazi}||${targetBazi}`;
-    const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'compatibility' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, cacheKey);
+    const cached = db
+      .prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'compatibility' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1")
+      .get(user_id, cacheKey);
+
     if (cached) {
       return res.json({
         success: true,
         data: {
           fullText: cached.response_text,
           sections: parseSections(cached.response_text),
+          compatibility_payload: parseCachedCompatibilityPayload(cached.response_text),
+          target_profile: targetProfile,
           cached: true
         }
       });
     }
 
-    const apiResult = await callMurronAPI({
-      bazi: myBazi,
-      target_bazi: targetBazi,
-      current_date: CURRENT_DATE
-    }, user_id);
-    const resultText = apiResult?.data?.outputs?.text
-      || apiResult?.outputs?.text
-      || (typeof apiResult === 'string' ? apiResult : JSON.stringify(apiResult));
+    const apiResult = await callMurronAPI(
+      {
+        bazi: myBazi,
+        target_bazi: targetBazi,
+        current_date: CURRENT_DATE
+      },
+      user_id
+    );
+    const { payload, rawText } = extractCompatibilityPayload(apiResult);
 
-    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, target_bazi_input, response_text) VALUES (?, ?, ?, ?, ?)').run(user_id, 'compatibility', cacheKey, targetBazi, resultText);
+    db.prepare(
+      'INSERT INTO murron_cache (user_id, request_type, bazi_input, target_bazi_input, response_text) VALUES (?, ?, ?, ?, ?)'
+    ).run(user_id, 'compatibility', cacheKey, targetBazi, rawText);
 
     return res.json({
       success: true,
       data: {
-        fullText: resultText,
-        sections: parseSections(resultText),
+        fullText: rawText,
+        sections: parseSections(rawText),
+        compatibility_payload: payload,
+        target_profile: targetProfile,
         cached: false
       }
     });
@@ -323,7 +423,7 @@ exports.getDayunAnalysis = async (req, res) => {
       return res.status(400).json({ success: false, message: '缺少 user_id' });
     }
 
-    const task = db.prepare("SELECT * FROM verification_tasks WHERE user_id = ? AND type = 'bazi_review' AND status = 'approved' ORDER BY reviewed_at DESC LIMIT 1").get(user_id);
+    const task = getApprovedBaziTask(user_id);
     if (!task) {
       return res.status(400).json({ success: false, message: '八字信息尚未审核通过' });
     }
@@ -341,17 +441,24 @@ exports.getDayunAnalysis = async (req, res) => {
     }
 
     if (!currentLuckPillar) {
-      return res.status(400).json({ success: false, message: '当前大运未填写，请管理员先补充 current_luck_pillar' });
+      return res.status(400).json({ success: false, message: 'current_luck_pillar 未填写' });
     }
 
     const bazi = `${yearP} ${monthP} ${dayP} ${hourP}`;
-    const cacheKey = `${bazi}||${currentLuckPillar}||${gender}`;
-    const cached = db.prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'dayun' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1").get(user_id, cacheKey);
+    const workflowBazi = `${yearP}${monthP}${dayP}${hourP}`;
+    const workflowGender = gender === 'female' ? '女' : '男';
+    const cacheKey = `${workflowBazi}||${currentLuckPillar}||${workflowGender}`;
+    const cached = db
+      .prepare("SELECT * FROM murron_cache WHERE user_id = ? AND request_type = 'dayun' AND bazi_input = ? ORDER BY created_at DESC LIMIT 1")
+      .get(user_id, cacheKey);
+    const cachedPayload = cached ? parseCachedDayunPayload(cached.response_text) : null;
+
     if (cached) {
       return res.json({
         success: true,
         data: {
           fullText: cached.response_text,
+          dayun_payload: cachedPayload,
           bazi,
           current_luck_pillar: currentLuckPillar,
           gender,
@@ -360,18 +467,24 @@ exports.getDayunAnalysis = async (req, res) => {
       });
     }
 
-    const resultText = await callDayunAPI({
-      bazi,
-      current_luck_pillar: currentLuckPillar,
-      gender
-    }, user_id);
+    const apiResult = await callDayunAPI(
+      {
+        bazi: workflowBazi,
+        current_luck_pillar: currentLuckPillar,
+        gender: workflowGender
+      },
+      user_id
+    );
+    const { payload, rawText } = extractDayunPayload(apiResult);
 
-    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)').run(user_id, 'dayun', cacheKey, resultText);
+    db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)')
+      .run(user_id, 'dayun', cacheKey, payload ? JSON.stringify(payload) : rawText);
 
     return res.json({
       success: true,
       data: {
-        fullText: resultText,
+        fullText: rawText,
+        dayun_payload: payload,
         bazi,
         current_luck_pillar: currentLuckPillar,
         gender,

@@ -1,5 +1,6 @@
 import { Op } from 'sequelize';
 import { cache } from '../config/redis';
+import sequelize from '../config/database';
 import { BaziInfo, Photo, Post, User } from '../models';
 import { calculateCompatibility } from './baziService';
 
@@ -308,7 +309,7 @@ export class RecommendationService {
         is_active: true,
       },
       include: [{ model: BaziInfo, as: 'bazi_info', required: false }],
-      order: this.sequelize.random(),
+      order: sequelize.random(),
       limit: SAMPLE_SIZE,
     })) as CandidateUser[];
 
@@ -439,11 +440,6 @@ export class RecommendationService {
   async clearCache(userId: string): Promise<void> {
     await cache.deletePattern(`discover:${userId}:*`);
     await cache.deletePattern(`recommendations:${userId}:*`);
-  }
-
-  private get sequelize() {
-    const { Sequelize } = require('sequelize');
-    return Sequelize;
   }
 }
 

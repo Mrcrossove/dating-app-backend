@@ -12,20 +12,54 @@ const WECHAT_APP_ID = process.env.WECHAT_APP_ID || '';
 const WECHAT_APP_SECRET = process.env.WECHAT_APP_SECRET || '';
 
 const normalizeIp = (req: Request) => (req.headers['x-forwarded-for'] as string || req.ip || '').split(',')[0]?.trim() || null;
+const normalizeAccount = (value: unknown) => String(value || '').trim();
+const buildLocalEmail = (account: string) => (account.includes('@') ? account : `${account}@local.banhe`);
+const isLikelyUniqueConstraintError = (error: any) => {
+  const name = String(error?.name || '');
+  return name === 'SequelizeUniqueConstraintError' || name === 'SequelizeValidationError';
+};
 
 const exchangeWechatCode = async (code: string) => {
-  const sessionRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
-    params: {
-      appid: WECHAT_APP_ID,
-      secret: WECHAT_APP_SECRET,
-      js_code: code,
-      grant_type: 'authorization_code',
-    },
-  });
+  if (!WECHAT_APP_ID || !WECHAT_APP_SECRET) {
+    throw Object.assign(new Error('微信登录暂未配置，请联系管理员检查 WECHAT_APP_ID / WECHAT_APP_SECRET'), {
+      code: 'AUTH_WECHAT_NOT_CONFIGURED',
+      statusCode: 503
+    });
+  }
 
-  const { openid, unionid, session_key, errcode, errmsg } = sessionRes.data || {};
-  if (errcode || !openid) throw Object.assign(new Error(errmsg || 'AUTH_WECHAT_CODE_INVALID'), { code: 'AUTH_WECHAT_CODE_INVALID' });
-  return { openid, unionid, session_key };
+  try {
+    const sessionRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
+      params: {
+        appid: WECHAT_APP_ID,
+        secret: WECHAT_APP_SECRET,
+        js_code: code,
+        grant_type: 'authorization_code',
+      },
+      timeout: 10000
+    });
+
+    const { openid, unionid, session_key, errcode, errmsg } = sessionRes.data || {};
+    if (errcode || !openid) {
+      throw Object.assign(new Error(errmsg || '微信授权码无效或已过期'), { code: 'AUTH_WECHAT_CODE_INVALID', statusCode: 400 });
+    }
+    return { openid, unionid, session_key };
+  } catch (error: any) {
+    if (error?.code === 'AUTH_WECHAT_NOT_CONFIGURED' || error?.code === 'AUTH_WECHAT_CODE_INVALID') {
+      throw error;
+    }
+
+    if (error?.response?.data?.errmsg) {
+      throw Object.assign(new Error(error.response.data.errmsg), {
+        code: 'AUTH_WECHAT_CODE_INVALID',
+        statusCode: 400
+      });
+    }
+
+    throw Object.assign(new Error('微信登录服务暂时不可用，请稍后重试'), {
+      code: 'AUTH_WECHAT_SERVICE_UNAVAILABLE',
+      statusCode: 503
+    });
+  }
 };
 
 const decryptWechatDataInternal = (sessionKey: string, iv: string, encryptedData: string) => {
@@ -87,22 +121,29 @@ const findOrCreateWechatUser = async (openid: string, unionid?: string) => {
 
 export const passwordRegister = async (req: Request, res: Response) => {
   try {
-    const { username, password, nickname, gender } = req.body;
-    if (!username || !password || password.length < 6) {
-      return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: 'Invalid register payload' });
+    const account = normalizeAccount(req.body?.username || req.body?.email);
+    const password = String(req.body?.password || '');
+    const nickname = normalizeAccount(req.body?.nickname) || account;
+    const gender = normalizeAccount(req.body?.gender) || 'female';
+
+    if (!account || !password || password.length < 6) {
+      return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: '请输入有效账号并设置至少 6 位密码' });
     }
 
+    const email = buildLocalEmail(account);
     const existing = await User.findOne({
-      where: { [Op.or]: [{ username }, { email: String(username).includes('@') ? username : `${username}@local.banhe` }] },
+      where: { [Op.or]: [{ username: account }, { email }] },
     });
-    if (existing) return res.status(409).json({ success: false, code: 'AUTH_USER_EXISTS', message: 'User already exists' });
+    if (existing) {
+      return res.status(409).json({ success: false, code: 'AUTH_USER_EXISTS', message: '该账号已注册，请直接登录' });
+    }
 
     const user = await User.create({
-      username: String(username).trim(),
-      nickname: String(nickname || username).trim(),
-      email: String(username).includes('@') ? String(username).trim() : `${String(username).trim()}@local.banhe`,
+      username: account,
+      nickname,
+      email,
       password_hash: await bcrypt.hash(password, 10),
-      gender: gender || 'female',
+      gender: gender === 'male' ? 'male' : 'female',
       birth_date: new Date('1995-01-01'),
       provider: 'email',
       profile_completed: false,
@@ -117,29 +158,34 @@ export const passwordRegister = async (req: Request, res: Response) => {
 
     return res.status(201).json({ success: true, data });
   } catch (error: any) {
+    if (isLikelyUniqueConstraintError(error)) {
+      return res.status(409).json({ success: false, code: 'AUTH_USER_EXISTS', message: '该账号已注册，请直接登录' });
+    }
     return res.status(500).json({ success: false, code: 'AUTH_INTERNAL_ERROR', message: error.message });
   }
 };
 
 export const passwordLogin = async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: 'Missing username or password' });
+    const account = normalizeAccount(req.body?.username || req.body?.email);
+    const password = String(req.body?.password || '');
+    if (!account || !password) {
+      return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: '请输入账号和密码' });
     }
 
     const user = await User.findOne({
       where: {
         [Op.or]: [
-          { username: String(username).trim() },
-          { email: String(username).trim() },
+          { username: account },
+          { email: account },
+          { email: buildLocalEmail(account) },
         ],
       },
     });
 
     if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
       await recordFailedLogin('password_login', 'AUTH_INVALID_CREDENTIALS', { ip: normalizeIp(req), userAgent: req.headers['user-agent'] || null });
-      return res.status(401).json({ success: false, code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, code: 'AUTH_INVALID_CREDENTIALS', message: '账号或密码错误' });
     }
 
     const data = await issueSession(user, {
@@ -157,7 +203,7 @@ export const passwordLogin = async (req: Request, res: Response) => {
 export const wechatSessionLogin = async (req: Request, res: Response) => {
   try {
     const { code } = req.body;
-    if (!code) return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: 'Missing code' });
+    if (!code) return res.status(400).json({ success: false, code: 'AUTH_INVALID_PARAMS', message: '缺少微信登录凭证 code' });
 
     const { openid, unionid } = await exchangeWechatCode(String(code));
     const { user, isNewUser } = await findOrCreateWechatUser(openid, unionid);
@@ -171,7 +217,8 @@ export const wechatSessionLogin = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, data });
   } catch (error: any) {
     const code = error?.code || 'AUTH_WECHAT_CODE_INVALID';
-    return res.status(400).json({ success: false, code, message: error.message || 'Wechat login failed' });
+    const statusCode = Number(error?.statusCode || 400);
+    return res.status(statusCode).json({ success: false, code, message: error.message || '微信登录失败' });
   }
 };
 
@@ -258,4 +305,3 @@ export const bindPhone = async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ success: false, code: 'AUTH_WECHAT_PHONE_INVALID', message: error.message || 'Bind phone failed' });
   }
 };
-

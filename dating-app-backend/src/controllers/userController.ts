@@ -458,8 +458,15 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
             }
         }
 
+        const currentGender = String(user.getDataValue('gender') || '').trim();
+        const currentBirthDateText = formatBirthDateForDisplay(user.getDataValue('birth_date'));
+        const nextGender = updates.gender !== undefined ? String(updates.gender || '').trim() : currentGender;
+        const nextBirthDateText = updates.birth_date
+          ? formatBirthDateForDisplay(updates.birth_date)
+          : currentBirthDateText;
+
         const isTryingToChangeBaziInputs =
-          updates.gender !== undefined || updates.birth_date !== undefined;
+          nextGender !== currentGender || nextBirthDateText !== currentBirthDateText;
 
         if (isTryingToChangeBaziInputs) {
           try {

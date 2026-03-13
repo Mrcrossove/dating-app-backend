@@ -237,6 +237,19 @@ const buildDiscoverTags = (params: {
   );
 };
 
+const calculateFallbackScore = (user: CandidateUser): number => {
+  let score = 72;
+
+  if (user.is_verified) score += 8;
+  if (safeText(user.nickname)) score += 3;
+  if (safeText(user.intro)) score += 3;
+  if (safeText(user.education)) score += 2;
+  if (safeText(user.job)) score += 2;
+  if (safeText(user.profile_extras)) score += 3;
+
+  return Math.min(95, score);
+};
+
 export class RecommendationService {
   async getRecommendations(params: RecommendationParams): Promise<{
     data: RecommendationResult[];
@@ -260,8 +273,8 @@ export class RecommendationService {
       include: [{ model: BaziInfo, as: 'bazi_info' }],
     });
 
-    if (!currentUser || !currentUser.bazi_info) {
-      throw new Error('Please complete your profile and bazi calculation first');
+    if (!currentUser) {
+      throw new Error('User not found');
     }
 
     const targetGender = currentUser.gender === 'male' ? 'female' : 'male';
@@ -294,7 +307,7 @@ export class RecommendationService {
         id: { [Op.notIn]: allExcludedIds },
         is_active: true,
       },
-      include: [{ model: BaziInfo, as: 'bazi_info', required: true }],
+      include: [{ model: BaziInfo, as: 'bazi_info', required: false }],
       order: this.sequelize.random(),
       limit: SAMPLE_SIZE,
     })) as CandidateUser[];
@@ -302,7 +315,10 @@ export class RecommendationService {
     const scored = await Promise.all(
       candidates.map(async (user) => ({
         user,
-        score: calculateCompatibility(currentUser.bazi_info!, user.bazi_info!),
+        score:
+          currentUser.bazi_info && user.bazi_info
+            ? calculateCompatibility(currentUser.bazi_info, user.bazi_info)
+            : calculateFallbackScore(user),
       }))
     );
 

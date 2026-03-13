@@ -1,7 +1,7 @@
+import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Like, User, Message, Photo, Match } from '../models';
-import { Op } from 'sequelize';
 
 const orderPair = (a: string, b: string) => (String(a) < String(b) ? [a, b] : [b, a]);
 
@@ -9,9 +9,11 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const { targetId } = req.params;
+    const mode = String(req.body?.mode || 'like').trim();
+    const isSuperLike = mode === 'super_like';
 
     if (String(userId) === String(targetId)) {
-        return res.status(400).json({ success: false, message: 'Cannot like yourself' });
+      return res.status(400).json({ success: false, message: 'Cannot like yourself' });
     }
 
     const existingLike = await Like.findOne({
@@ -21,30 +23,33 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     if (existingLike) {
       await existingLike.destroy();
       return res.status(200).json({ success: true, message: 'Unliked', liked: false });
-    } else {
-      await Like.create({ user_id: userId, target_id: targetId });
-
-      // Create match if mutual like
-      const mutual = await Like.findOne({ where: { user_id: targetId, target_id: userId } });
-      if (mutual) {
-        const [user1Id, user2Id] = orderPair(String(userId), String(targetId));
-        await Match.findOrCreate({
-          where: { user1_id: user1Id, user2_id: user2Id },
-          defaults: { user1_id: user1Id, user2_id: user2Id, compatibility_score: 50, status: 'active' }
-        }).catch(() => undefined);
-      }
-
-      // Send a system message or auto-message
-      await Message.create({
-          sender_id: userId,
-          receiver_id: targetId,
-          content: '我关注了你 ❤️',
-          message_type: 'system',
-          is_read: false
-      });
-
-      return res.status(200).json({ success: true, message: 'Liked', liked: true });
     }
+
+    await Like.create({ user_id: userId, target_id: targetId });
+
+    const mutual = await Like.findOne({ where: { user_id: targetId, target_id: userId } });
+    if (mutual) {
+      const [user1Id, user2Id] = orderPair(String(userId), String(targetId));
+      await Match.findOrCreate({
+        where: { user1_id: user1Id, user2_id: user2Id },
+        defaults: { user1_id: user1Id, user2_id: user2Id, compatibility_score: 50, status: 'active' }
+      }).catch(() => undefined);
+    }
+
+    await Message.create({
+      sender_id: userId,
+      receiver_id: targetId,
+      content: isSuperLike ? '我对你发送了超级喜欢 ❤' : '我关注了你 ❤',
+      message_type: 'system',
+      is_read: false
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: isSuperLike ? 'Super liked' : 'Liked',
+      liked: true,
+      mode: isSuperLike ? 'super_like' : 'like'
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -156,38 +161,37 @@ export const getLikeStats = async (req: AuthRequest, res: Response) => {
 };
 
 export const getMyLikes = async (req: AuthRequest, res: Response) => {
-    try {
-        const userId = req.user.id;
-        const likes = await Like.findAll({
-            where: { user_id: userId },
-            include: [{ 
-                model: User, 
-                as: 'target_user',
-                attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'hometown', 'job', 'avatar_url'],
-                include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
-            }]
-        });
+  try {
+    const userId = req.user.id;
+    const likes = await Like.findAll({
+      where: { user_id: userId },
+      include: [{
+        model: User,
+        as: 'target_user',
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'hometown', 'job', 'avatar_url'],
+        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+      }]
+    });
 
-        // Format data
-        const data = likes.map((like: any) => ({
-            id: like.id,
-            user: {
-                id: like.target_user.id,
-                username: like.target_user.nickname || like.target_user.username,
-                gender: like.target_user.gender,
-                birth_date: like.target_user.birth_date,
-                hometown: like.target_user.hometown || '',
-                job: like.target_user.job || '',
-                photo:
-                  like.target_user.photos && like.target_user.photos.length > 0
-                    ? like.target_user.photos[0].url
-                    : like.target_user.avatar_url || null
-            },
-            created_at: like.created_at
-        }));
+    const data = likes.map((like: any) => ({
+      id: like.id,
+      user: {
+        id: like.target_user.id,
+        username: like.target_user.nickname || like.target_user.username,
+        gender: like.target_user.gender,
+        birth_date: like.target_user.birth_date,
+        hometown: like.target_user.hometown || '',
+        job: like.target_user.job || '',
+        photo:
+          like.target_user.photos && like.target_user.photos.length > 0
+            ? like.target_user.photos[0].url
+            : like.target_user.avatar_url || null
+      },
+      created_at: like.created_at
+    }));
 
-        return res.status(200).json({ success: true, data });
-    } catch (error: any) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };

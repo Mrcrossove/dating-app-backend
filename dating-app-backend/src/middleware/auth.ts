@@ -22,7 +22,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
     if (err) {
-      return res.status(403).json({ success: false, message: 'Invalid token' });
+      return res.status(401).json({ success: false, code: 'AUTH_TOKEN_INVALID', message: 'Invalid token' });
     }
     req.user = user;
     next();

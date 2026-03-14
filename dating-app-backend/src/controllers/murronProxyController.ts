@@ -146,10 +146,6 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
     const { target_user_id, manual_target } = req.body || {};
 
     const unlocked = await getUnlocked(userId);
-    if (!unlocked.compatibility) {
-      return res.status(402).json({ success: false, message: '需要解锁灵魂合盘报告' });
-    }
-
     let requestPayload: Record<string, unknown> = { user_id: userId };
 
     if (target_user_id) {
@@ -206,7 +202,8 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
         sections: {
           compatibility: sections.compatibility || ''
         },
-        unlocked
+        unlocked,
+        paywall_required: !unlocked.compatibility
       }
     });
   } catch (error: any) {

@@ -109,6 +109,7 @@ const ensureUserColumns = async () => {
   await sql('ALTER TABLE users ADD COLUMN last_login_ip TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wechat_openid TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wechat_unionid TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN im_user_id TEXT;');
 };
 
 const ensurePostColumns = async () => {

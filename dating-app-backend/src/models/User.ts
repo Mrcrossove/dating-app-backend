@@ -44,6 +44,7 @@ class User extends Model {
   public wechat_openid!: string | null;
   public wechat_unionid!: string | null;
   public avatar_url!: string;
+  public im_user_id!: string | null;
 
   // Association fields
   public bazi_info?: BaziInfo;
@@ -147,6 +148,7 @@ User.init(
     wechat_openid: { type: DataTypes.STRING, allowNull: true, unique: true },
     wechat_unionid: { type: DataTypes.STRING, allowNull: true, unique: true },
     avatar_url: { type: DataTypes.STRING, allowNull: true },
+    im_user_id: { type: DataTypes.STRING, allowNull: true, unique: true }
   },
   {
     sequelize,

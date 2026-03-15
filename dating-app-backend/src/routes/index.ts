@@ -13,6 +13,7 @@ import * as murronProxyController from '../controllers/murronProxyController';
 import * as entitlementController from '../controllers/entitlementController';
 import * as safetyController from '../controllers/safetyController';
 import * as sessionController from '../controllers/sessionController';
+import * as imController from '../controllers/imController';
 import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
@@ -117,6 +118,9 @@ router.post('/entitlements/grant', authenticateToken, entitlementController.gran
 router.get('/messages', authenticateToken, userController.getConversations);
 router.get('/messages/:targetId', authenticateToken, userController.getMessages);
 router.post('/messages/:targetId', authenticateToken, userController.sendMessage);
+
+// IM Routes
+router.post('/im/easemob/token', authenticateToken, imController.getEasemobToken);
 
 // Report & Block
 router.post('/user/report', authenticateToken, safetyController.reportUser);

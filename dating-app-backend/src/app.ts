@@ -16,6 +16,8 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const isProduction = process.env.NODE_ENV === 'production';
 
+app.set('trust proxy', 1);
+
 const jwtSecret = process.env.JWT_SECRET || '';
 if (!jwtSecret || jwtSecret === 'your_super_secret_key') {
   throw new Error('JWT_SECRET is missing or insecure. Please set a strong JWT_SECRET in environment variables.');
@@ -29,9 +31,16 @@ app.use(helmet({
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req: express.Request) => {
+    const authHeader = String(req.headers.authorization || '').trim();
+    if (authHeader.startsWith('Bearer ')) {
+      return `token:${authHeader.slice(7, 39)}`;
+    }
+    return String(req.ip || req.socket.remoteAddress || 'unknown');
+  },
   message: { success: false, message: '请求过于频繁，请稍后重试' },
   skip: (req: express.Request) => req.method === 'OPTIONS'
 });

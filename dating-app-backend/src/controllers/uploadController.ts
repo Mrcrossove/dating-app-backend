@@ -11,6 +11,17 @@ const ensureUploadDir = () => {
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 };
 
+const buildPublicBaseUrl = (req: AuthRequest) => {
+  const configured =
+    String(process.env.PUBLIC_BASE_URL || process.env.API_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+
+  const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const protocol = forwardedProto || 'https';
+  const host = String(req.get('x-forwarded-host') || req.get('host') || '').trim();
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+};
+
 const parseDataUrl = (dataUrl: string) => {
   const match = /^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match) return null;
@@ -55,8 +66,7 @@ export const uploadImagesBase64 = async (req: AuthRequest, res: Response) => {
       const absPath = path.join(uploadDir, filename);
       fs.writeFileSync(absPath, buffer);
 
-      const host = req.get('host');
-      const url = `${req.protocol}://${host}/uploads/${filename}`;
+      const url = `${buildPublicBaseUrl(req)}/uploads/${filename}`;
       urls.push(url);
     }
 

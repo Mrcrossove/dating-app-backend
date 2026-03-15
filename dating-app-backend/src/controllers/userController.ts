@@ -128,16 +128,28 @@ export const uploadPhoto = async (req: AuthRequest, res: Response) => {
             return res.status(400).json({ success: false, message: 'Missing photo URL' });
         }
 
+        const hadPrimaryBefore = await Photo.count({
+          where: {
+            user_id: userId,
+            is_primary: true
+          }
+        });
+
         // If setting as primary, unset others
         if (is_primary) {
             await Photo.update({ is_primary: false }, { where: { user_id: userId } });
         }
 
+        const shouldSetPrimary = !!is_primary || hadPrimaryBefore === 0;
         const photo = await Photo.create({
             user_id: userId,
             url,
-            is_primary: is_primary || false
+            is_primary: shouldSetPrimary
         });
+
+        if (shouldSetPrimary) {
+          await User.update({ avatar_url: url }, { where: { id: userId } });
+        }
 
         return res.status(200).json({ success: true, data: photo });
     } catch (error: any) {
@@ -174,6 +186,8 @@ export const replacePhotos = async (req: AuthRequest, res: Response) => {
         })
       )
     );
+
+    await User.update({ avatar_url: cleaned[0] || '' }, { where: { id: userId } });
 
     return res.status(200).json({ success: true, data: created });
   } catch (error: any) {

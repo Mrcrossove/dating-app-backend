@@ -110,6 +110,9 @@ function normalizeObjectDeep(value) {
   if (Array.isArray(value)) {
     return value.map(normalizeObjectDeep);
   }
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return value;
+  }
   if (!value || typeof value !== 'object') {
     return normalizeTextValue(value);
   }

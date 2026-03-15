@@ -4,6 +4,7 @@ import * as baziController from '../controllers/baziController';
 import * as recommendationController from '../controllers/recommendationController';
 import * as userController from '../controllers/userController';
 import * as likeController from '../controllers/likeController';
+import * as matchController from '../controllers/matchController';
 import * as postController from '../controllers/postController';
 import * as uploadController from '../controllers/uploadController';
 import * as ossController from '../controllers/ossController';
@@ -90,6 +91,11 @@ router.get('/user/likes', authenticateToken, likeController.getMyLikes);
 router.get('/user/liked-by', authenticateToken, likeController.getLikedBy);
 router.get('/user/matches', authenticateToken, likeController.getMatches);
 router.get('/user/likes/stats', authenticateToken, likeController.getLikeStats);
+router.get('/matches/user/:userId', authenticateToken, matchController.getMatchByUsers);
+router.get('/matches/:matchId', authenticateToken, matchController.getMatchDetail);
+router.post('/matches/:matchId/question', authenticateToken, matchController.sendQuestion);
+router.post('/matches/:matchId/answer', authenticateToken, matchController.answerQuestion);
+router.post('/matches/:matchId/start-chat', authenticateToken, matchController.startChat);
 
 // Post Routes
 router.post('/user/posts', authenticateToken, postController.createPost);

@@ -120,6 +120,19 @@ const ensurePostColumns = async () => {
   await sql('ALTER TABLE posts ADD COLUMN comments_count INTEGER DEFAULT 0;');
 };
 
+const ensureMatchColumns = async () => {
+  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
+  await sql('ALTER TABLE matches ADD COLUMN female_id TEXT;');
+  await sql('ALTER TABLE matches ADD COLUMN male_id TEXT;');
+  await sql('ALTER TABLE matches ADD COLUMN female_question TEXT;');
+  await sql('ALTER TABLE matches ADD COLUMN male_answer TEXT;');
+  await sql('ALTER TABLE matches ADD COLUMN question_created_at DATETIME;');
+  await sql('ALTER TABLE matches ADD COLUMN answer_created_at DATETIME;');
+  await sql('ALTER TABLE matches ADD COLUMN chat_started_at DATETIME;');
+  await sql('ALTER TABLE matches ADD COLUMN chat_start_message_sent BOOLEAN DEFAULT 0;');
+  await sql("ALTER TABLE matches ADD COLUMN stage TEXT DEFAULT 'matched';");
+};
+
 const startServer = async () => {
   try {
     await sequelize.authenticate();
@@ -128,6 +141,7 @@ const startServer = async () => {
     await sequelize.sync({ force: false });
     await ensureUserColumns();
     await ensurePostColumns();
+    await ensureMatchColumns();
     console.log('Database synced.');
 
     app.listen(PORT, '0.0.0.0', () => {

@@ -328,7 +328,13 @@ export const getPublicProfile = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Missing userId' });
     }
 
-    const user = await User.findByPk(userId, {
+    const user = await User.findOne({
+      where: {
+        [Op.or]: [
+          { id: userId },
+          { im_user_id: userId }
+        ]
+      },
       attributes: [
         'id',
         'username',
@@ -351,6 +357,7 @@ export const getPublicProfile = async (req: AuthRequest, res: Response) => {
         'moments',
         'wishes',
         'avatar_url',
+        'im_user_id',
         'created_at'
       ] as any,
       include: [{ model: Photo, as: 'photos' }]

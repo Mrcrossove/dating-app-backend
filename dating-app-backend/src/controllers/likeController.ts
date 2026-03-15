@@ -1,16 +1,61 @@
 import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Like, User, Message, Photo, Match } from '../models';
+import { Like, User, Photo } from '../models';
+import {
+  ensureMatchForUsers,
+  findMatchByUsers,
+  serializeMatchForViewer
+} from '../services/matchService';
 
-const orderPair = (a: string, b: string) => (String(a) < String(b) ? [a, b] : [b, a]);
+const buildUserCard = (user: any) => ({
+  id: user.id,
+  im_user_id: user.im_user_id || null,
+  username: user.nickname || user.username,
+  nickname: user.nickname || user.username,
+  gender: user.gender,
+  birth_date: user.birth_date,
+  hometown: user.hometown || '',
+  job: user.job || '',
+  photo: user.photos?.[0]?.url || user.avatar_url || null
+});
+
+const attachMatchToItems = async (params: {
+  viewerId: string;
+  items: any[];
+  getOtherUser: (item: any) => any;
+  mapBase: (item: any, matchPayload: any) => any;
+}) => {
+  const { viewerId, items, getOtherUser, mapBase } = params;
+
+  return Promise.all(
+    (items || []).map(async (item: any) => {
+      const otherUser = getOtherUser(item);
+      const match = otherUser?.id ? await findMatchByUsers(viewerId, otherUser.id) : null;
+      const matchPayload = match
+        ? serializeMatchForViewer({
+            match,
+            viewerId,
+            otherUser
+          })
+        : null;
+
+      return mapBase(item, matchPayload);
+    })
+  );
+};
 
 export const toggleLike = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
-    const { targetId } = req.params;
+    const rawTargetId = (req.params as any).targetId as string | string[] | undefined;
+    const targetId = Array.isArray(rawTargetId) ? rawTargetId[0] : rawTargetId;
     const mode = String(req.body?.mode || 'like').trim();
     const isSuperLike = mode === 'super_like';
+
+    if (!targetId) {
+      return res.status(400).json({ success: false, message: 'Missing targetId' });
+    }
 
     if (String(userId) === String(targetId)) {
       return res.status(400).json({ success: false, message: 'Cannot like yourself' });
@@ -27,27 +72,32 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
 
     await Like.create({ user_id: userId, target_id: targetId });
 
-    const mutual = await Like.findOne({ where: { user_id: targetId, target_id: userId } });
-    if (mutual) {
-      const [user1Id, user2Id] = orderPair(String(userId), String(targetId));
-      await Match.findOrCreate({
-        where: { user1_id: user1Id, user2_id: user2Id },
-        defaults: { user1_id: user1Id, user2_id: user2Id, compatibility_score: 50, status: 'active' }
-      }).catch(() => undefined);
-    }
+    const [currentUser, targetUser, mutual] = await Promise.all([
+      User.findByPk(userId, {
+        attributes: ['id', 'username', 'nickname', 'gender', 'im_user_id'] as any
+      }),
+      User.findByPk(targetId, {
+        attributes: ['id', 'username', 'nickname', 'gender', 'im_user_id'] as any
+      }),
+      Like.findOne({ where: { user_id: targetId, target_id: userId } })
+    ]);
 
-    await Message.create({
-      sender_id: userId,
-      receiver_id: targetId,
-      content: isSuperLike ? '我对你发送了超级喜欢 ❤' : '我关注了你 ❤',
-      message_type: 'system',
-      is_read: false
-    });
+    let matchPayload = null;
+    if (mutual && currentUser && targetUser) {
+      const match = await ensureMatchForUsers(currentUser, targetUser);
+      matchPayload = serializeMatchForViewer({
+        match,
+        viewerId: userId,
+        otherUser: targetUser
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: isSuperLike ? 'Super liked' : 'Liked',
       liked: true,
+      matched: !!matchPayload,
+      match: matchPayload,
       mode: isSuperLike ? 'super_like' : 'like'
     });
   } catch (error: any) {
@@ -63,25 +113,24 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job'],
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job', 'im_user_id'],
         include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
       }],
       order: [['created_at', 'DESC']]
     });
 
-    const data = likes.map((like: any) => ({
-      id: like.id,
-      user: {
-        id: like.user.id,
-        username: like.user.nickname || like.user.username,
-        gender: like.user.gender,
-        birth_date: like.user.birth_date,
-        hometown: like.user.hometown || '',
-        job: like.user.job || '',
-        photo: like.user.photos?.[0]?.url || like.user.avatar_url || null
-      },
-      created_at: like.created_at
-    }));
+    const data = await attachMatchToItems({
+      viewerId: userId,
+      items: likes,
+      getOtherUser: (like: any) => like.user,
+      mapBase: (like: any, matchPayload: any) => ({
+        id: like.id,
+        user: buildUserCard(like.user),
+        created_at: like.created_at,
+        is_match: !!matchPayload,
+        match: matchPayload
+      })
+    });
 
     return res.status(200).json({ success: true, data });
   } catch (error: any) {
@@ -105,24 +154,22 @@ export const getMatches = async (req: AuthRequest, res: Response) => {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job'],
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job', 'im_user_id'],
         include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
       }],
       order: [['created_at', 'DESC']]
     });
 
-    const data = mutualLikes.map((like: any) => ({
-      user: {
-        id: like.user.id,
-        username: like.user.nickname || like.user.username,
-        gender: like.user.gender,
-        birth_date: like.user.birth_date,
-        hometown: like.user.hometown || '',
-        job: like.user.job || '',
-        photo: like.user.photos?.[0]?.url || like.user.avatar_url || null
-      },
-      matched_at: like.created_at
-    }));
+    const data = await attachMatchToItems({
+      viewerId: userId,
+      items: mutualLikes,
+      getOtherUser: (like: any) => like.user,
+      mapBase: (like: any, matchPayload: any) => ({
+        user: buildUserCard(like.user),
+        matched_at: like.created_at,
+        match: matchPayload
+      })
+    });
 
     return res.status(200).json({ success: true, data });
   } catch (error: any) {
@@ -168,27 +215,23 @@ export const getMyLikes = async (req: AuthRequest, res: Response) => {
       include: [{
         model: User,
         as: 'target_user',
-        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'hometown', 'job', 'avatar_url'],
+        attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'hometown', 'job', 'avatar_url', 'im_user_id'],
         include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
       }]
     });
 
-    const data = likes.map((like: any) => ({
-      id: like.id,
-      user: {
-        id: like.target_user.id,
-        username: like.target_user.nickname || like.target_user.username,
-        gender: like.target_user.gender,
-        birth_date: like.target_user.birth_date,
-        hometown: like.target_user.hometown || '',
-        job: like.target_user.job || '',
-        photo:
-          like.target_user.photos && like.target_user.photos.length > 0
-            ? like.target_user.photos[0].url
-            : like.target_user.avatar_url || null
-      },
-      created_at: like.created_at
-    }));
+    const data = await attachMatchToItems({
+      viewerId: userId,
+      items: likes,
+      getOtherUser: (like: any) => like.target_user,
+      mapBase: (like: any, matchPayload: any) => ({
+        id: like.id,
+        user: buildUserCard(like.target_user),
+        created_at: like.created_at,
+        is_match: !!matchPayload,
+        match: matchPayload
+      })
+    });
 
     return res.status(200).json({ success: true, data });
   } catch (error: any) {

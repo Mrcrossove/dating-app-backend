@@ -5,6 +5,7 @@ const DEFAULT_MURRON_URL = 'https://www.murron-omni.com/apps/api/v1/workflows/ru
 const DEFAULT_MURRON_KEY = 'app-SNF2iQnn3TRDzK0Nkt95W2PQ';
 const DEFAULT_DAYUN_URL = 'https://www.murron-omni.com/apps/api/v1/workflows/run';
 const DEFAULT_DAYUN_KEY = 'app-bygb4gYS50Ka2aqF5HFxrwqd';
+const WORKFLOW_TIMEOUT_MS = Number(process.env.MURRON_TIMEOUT_MS || 300000);
 
 const MURRON_URL = process.env.MURRON_API_URL || DEFAULT_MURRON_URL;
 const MURRON_KEY = process.env.MURRON_API_KEY || DEFAULT_MURRON_KEY;
@@ -30,7 +31,7 @@ async function callMurronAPI(inputs, userId) {
         Authorization: `Bearer ${MURRON_KEY}`,
         'Content-Type': 'application/json'
       },
-      timeout: 120000
+      timeout: WORKFLOW_TIMEOUT_MS
     }
   );
 
@@ -50,7 +51,7 @@ async function callDayunAPI(inputs, userId) {
         Authorization: `Bearer ${DAYUN_KEY}`,
         'Content-Type': 'application/json'
       },
-      timeout: 120000
+      timeout: WORKFLOW_TIMEOUT_MS
     }
   );
 

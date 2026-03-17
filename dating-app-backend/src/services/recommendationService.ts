@@ -3,12 +3,14 @@ import { cache } from '../config/redis';
 import sequelize from '../config/database';
 import { BaziInfo, Photo, Post, User } from '../models';
 import { calculateCompatibility } from './baziService';
+import { getSuperLikeBoostUserIds } from './vipService';
 
 const CACHE_TTL = 300;
 const MIN_COMPATIBILITY_SCORE = 70;
 const DEFAULT_PAGE_SIZE = 20;
 const SAMPLE_SIZE = 100;
 const MAX_CARD_PHOTOS = 6;
+const SUPER_LIKE_EXPOSURE_BOOST = 10;
 
 interface RecommendationParams {
   userId: string;
@@ -70,6 +72,8 @@ interface RecommendationResult {
     is_verified: boolean;
   };
   compatibility_score: number;
+  exposure_boost?: number;
+  boosted?: boolean;
 }
 
 type CandidateUser = User & { bazi_info?: BaziInfo };
@@ -313,19 +317,30 @@ export class RecommendationService {
       limit: SAMPLE_SIZE,
     })) as CandidateUser[];
 
+    const superLikeBoostUserIds = await getSuperLikeBoostUserIds(candidates.map((user) => String(user.id)));
+
     const scored = await Promise.all(
       candidates.map(async (user) => ({
         user,
-        score:
+        baseScore:
           currentUser.bazi_info && user.bazi_info
             ? calculateCompatibility(currentUser.bazi_info, user.bazi_info)
             : calculateFallbackScore(user),
+        exposureBoost: superLikeBoostUserIds.has(String(user.id)) ? SUPER_LIKE_EXPOSURE_BOOST : 0,
       }))
     );
 
     const matched = scored
+      .map((item) => ({
+        ...item,
+        score: Math.min(100, item.baseScore + item.exposureBoost),
+      }))
       .filter(({ score }) => score >= MIN_COMPATIBILITY_SCORE)
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.exposureBoost !== a.exposureBoost) return b.exposureBoost - a.exposureBoost;
+        return b.baseScore - a.baseScore;
+      });
 
     const total = matched.length;
     const startIndex = (safePage - 1) * safeLimit;
@@ -368,7 +383,7 @@ export class RecommendationService {
       postMap.set(ownerId, current);
     });
 
-    const data = paginated.map(({ user, score }) => {
+    const data = paginated.map(({ user, score, exposureBoost }) => {
       const extras = parseProfileExtras(user.profile_extras);
       const interests = normalizeTextArray(user.interests, 4);
       const photoWall = buildPhotoWall({
@@ -425,6 +440,8 @@ export class RecommendationService {
           is_verified: Boolean(user.is_verified),
         },
         compatibility_score: Math.round(score),
+        exposure_boost: exposureBoost || 0,
+        boosted: exposureBoost > 0,
       };
     });
 
@@ -440,6 +457,11 @@ export class RecommendationService {
   async clearCache(userId: string): Promise<void> {
     await cache.deletePattern(`discover:${userId}:*`);
     await cache.deletePattern(`recommendations:${userId}:*`);
+  }
+
+  async clearDiscoverCache(): Promise<void> {
+    await cache.deletePattern('discover:*');
+    await cache.deletePattern('recommendations:*');
   }
 }
 

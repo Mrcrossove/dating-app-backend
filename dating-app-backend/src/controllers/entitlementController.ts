@@ -1,8 +1,9 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
+import { recommendationService } from '../services/recommendationService';
 
-const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026'] as const;
+const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'super_like'] as const;
 type ProductKey = (typeof PRODUCT_KEYS)[number];
 
 const isProductKey = (value: any): value is ProductKey =>
@@ -20,7 +21,8 @@ export const getEntitlements = async (req: AuthRequest, res: Response) => {
     const unlocked: Record<ProductKey, boolean> = {
       partner_profile: false,
       compatibility: false,
-      fortune_2026: false
+      fortune_2026: false,
+      super_like: false
     };
     rows.forEach((r: any) => {
       const key = r.product_key as ProductKey;
@@ -45,6 +47,9 @@ export const unlockEntitlement = async (req: AuthRequest, res: Response) => {
       where: { user_id: userId, product_key },
       defaults: { user_id: userId, product_key } as any
     });
+    if (product_key === 'super_like') {
+      await recommendationService.clearDiscoverCache();
+    }
 
     return getEntitlements(req, res);
   } catch (error: any) {
@@ -73,6 +78,9 @@ export const grantEntitlements = async (req: AuthRequest, res: Response) => {
         })
       )
     );
+    if (keys.includes('super_like')) {
+      await recommendationService.clearDiscoverCache();
+    }
 
     return res.json({ success: true, data: { target_user_id: targetUserId, product_keys: keys } });
   } catch (error: any) {

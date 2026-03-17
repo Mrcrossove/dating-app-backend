@@ -93,9 +93,6 @@ router.get('/user/matches', authenticateToken, likeController.getMatches);
 router.get('/user/likes/stats', authenticateToken, likeController.getLikeStats);
 router.get('/matches/user/:userId', authenticateToken, matchController.getMatchByUsers);
 router.get('/matches/:matchId', authenticateToken, matchController.getMatchDetail);
-router.post('/matches/:matchId/question', authenticateToken, matchController.sendQuestion);
-router.post('/matches/:matchId/answer', authenticateToken, matchController.answerQuestion);
-router.post('/matches/:matchId/start-chat', authenticateToken, matchController.startChat);
 
 // Post Routes
 router.post('/user/posts', authenticateToken, postController.createPost);

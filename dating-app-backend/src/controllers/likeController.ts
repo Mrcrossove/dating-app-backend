@@ -9,7 +9,7 @@ import {
   MATCH_STAGE
 } from '../services/matchService';
 import { buildImUserId, sendTextMessageAsUser } from '../services/easemobService';
-import { hasDiscoverVipAccess } from '../services/vipService';
+import { hasDiscoverVipAccess, hasSuperLikeAccess } from '../services/vipService';
 
 const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
 
@@ -84,6 +84,17 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     if (existingLike) {
       await existingLike.destroy();
       return res.status(200).json({ success: true, message: 'Unliked', liked: false });
+    }
+
+    if (isSuperLike) {
+      const hasAccess = await hasSuperLikeAccess(userId);
+      if (!hasAccess) {
+        return res.status(403).json({
+          success: false,
+          code: 'SUPER_LIKE_REQUIRED',
+          message: 'Super like entitlement required'
+        });
+      }
     }
 
     await Like.create({ user_id: userId, target_id: targetId });

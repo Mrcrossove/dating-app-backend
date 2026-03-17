@@ -111,6 +111,8 @@ router.post('/posts/:id/comments', authenticateToken, postController.addComment)
 // Upload Routes
 router.post('/uploads/base64', authenticateToken, uploadController.uploadImagesBase64);
 router.get('/oss/policy', authenticateToken, ossController.getUploadPolicy);
+router.get('/oss/private-policy', authenticateToken, ossController.getPrivateUploadPolicy);
+router.get('/internal/oss/private-object-url', ossController.getPrivateObjectUrl);
 
 // Feedback
 router.post('/feedback', authenticateToken, feedbackController.submitFeedback);

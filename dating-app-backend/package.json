@@ -6,6 +6,8 @@
     "start": "ts-node src/app.ts",
     "dev": "nodemon src/app.ts",
     "build": "tsc",
+    "migrate:auth-media": "ts-node src/scripts/migrateAuthMedia.ts",
+    "cleanup:auth-media": "ts-node src/scripts/cleanupAuthMedia.ts",
     "test": "jest"
   },
   "keywords": [],

@@ -9,6 +9,29 @@ const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:301
 
 const sha256 = (text: string) => crypto.createHash('sha256').update(text).digest('hex');
 
+const normalizeAuthImage = (raw: any) => {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const bucket = String(raw.bucket || '').trim();
+  const key = String(raw.key || '').trim().replace(/^\/+/, '');
+  const mimeType = String(raw.mimeType || raw.contentType || '').trim().toLowerCase();
+  const size = Number(raw.size || 0);
+  const filename = String(raw.filename || '').trim();
+
+  if (!bucket || !key) return null;
+  if (!key.startsWith('auth/')) return null;
+  if (mimeType && !mimeType.startsWith('image/')) return null;
+  if (size && (!Number.isFinite(size) || size <= 0 || size > 15 * 1024 * 1024)) return null;
+
+  return {
+    bucket,
+    key,
+    mimeType: mimeType || 'image/jpeg',
+    size: size > 0 ? size : 0,
+    filename
+  };
+};
+
 const upsertAuthRecord = async (userId: string, type: 'real_name' | 'company' | 'education', status: 'pending' | 'approved' | 'rejected', payload: any) => {
   const existing = await AuthRecord.findOne({ where: { user_id: userId, type } });
   if (existing) {
@@ -152,11 +175,12 @@ export const submitCompanyAuth = async (req: AuthRequest, res: Response) => {
     const email = String(req.body?.email || '').trim();
     const code = String(req.body?.code || '').trim();
     const imageUrl = String(req.body?.imageUrl || req.body?.image || '').trim();
+    const authImage = normalizeAuthImage(req.body?.authImage);
 
     if (!company) return res.status(400).json({ success: false, message: '缺少公司名称' });
-    if (!((email && code) || imageUrl)) return res.status(400).json({ success: false, message: '缺少认证材料' });
+    if (!((email && code) || imageUrl || authImage)) return res.status(400).json({ success: false, message: '缺少认证材料' });
 
-    const payload = { company, position, email, imageUrl };
+    const payload = { company, position, email, imageUrl, authImage };
     await upsertAuthRecord(userId, 'company', 'pending', payload);
     await submitAdminVerificationTask({
       userId,
@@ -178,12 +202,13 @@ export const submitEducationAuth = async (req: AuthRequest, res: Response) => {
     const degree = String(req.body?.degree || '').trim();
     const code = String(req.body?.code || '').trim();
     const imageUrl = String(req.body?.imageUrl || req.body?.image || '').trim();
+    const authImage = normalizeAuthImage(req.body?.authImage);
 
     if (!school) return res.status(400).json({ success: false, message: '缺少学校' });
     if (!degree) return res.status(400).json({ success: false, message: '缺少学历' });
-    if (!(code || imageUrl)) return res.status(400).json({ success: false, message: '缺少认证材料' });
+    if (!(code || imageUrl || authImage)) return res.status(400).json({ success: false, message: '缺少认证材料' });
 
-    const payload = { school, degree, code: code ? 'provided' : '', imageUrl };
+    const payload = { school, degree, code: code ? 'provided' : '', imageUrl, authImage };
     await upsertAuthRecord(userId, 'education', 'pending', payload);
     await submitAdminVerificationTask({
       userId,

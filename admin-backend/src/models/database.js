@@ -40,6 +40,21 @@ function initDatabase() {
       FOREIGN KEY (reviewer_id) REFERENCES admin_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS auth_material_access_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_id INTEGER NOT NULL,
+      task_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      bucket TEXT,
+      object_key TEXT,
+      access_mode TEXT NOT NULL,
+      ip TEXT,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (admin_id) REFERENCES admin_users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS murron_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
@@ -54,6 +69,8 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tasks_type ON verification_tasks(type);
     CREATE INDEX IF NOT EXISTS idx_tasks_user ON verification_tasks(user_id);
     CREATE INDEX IF NOT EXISTS idx_cache_user ON murron_cache(user_id, request_type);
+    CREATE INDEX IF NOT EXISTS idx_auth_material_logs_task ON auth_material_access_logs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_material_logs_admin ON auth_material_access_logs(admin_id);
   `);
 
   // Add columns for old databases (SQLite has no IF NOT EXISTS for ADD COLUMN on older versions)

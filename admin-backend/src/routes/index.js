@@ -30,6 +30,7 @@ router.post('/admin/reviews/users/:userId/:type/reject', adminAuth, verifyCtrl.r
 router.get('/admin/verification/list', adminAuth, verifyCtrl.getPendingList);
 router.get('/admin/verification/stats', adminAuth, verifyCtrl.getStats);
 router.get('/admin/verification/:id', adminAuth, verifyCtrl.getTaskDetail);
+router.get('/admin/verification/:id/file-url', adminAuth, verifyCtrl.getTaskFileUrl);
 router.post('/admin/verification/:id/approve', adminAuth, verifyCtrl.approveTask);
 router.post('/admin/verification/:id/reject', adminAuth, verifyCtrl.rejectTask);
 

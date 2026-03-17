@@ -1,4 +1,8 @@
+const axios = require('axios');
 const { db } = require('../models/database');
+
+const INTERNAL_API_BASE = String(process.env.API_INTERNAL_URL || 'http://127.0.0.1:3002').replace(/\/+$/, '');
+const INTERNAL_SERVICE_TOKEN = String(process.env.INTERNAL_SERVICE_TOKEN || '').trim();
 
 const TYPE_ORDER = ['bazi_review', 'real_name', 'company', 'education'];
 const TYPE_LABELS = {
@@ -24,6 +28,60 @@ function normalizeTask(task) {
     submitted_data: safeParse(task.submitted_data),
     reviewed_data: safeParse(task.reviewed_data)
   };
+}
+
+function getPreviewPayload(task) {
+  const submitted = task?.submitted_data || {};
+  const authImage = submitted && typeof submitted.authImage === 'object' ? submitted.authImage : null;
+  const imageUrl = String(submitted?.imageUrl || submitted?.image || '').trim();
+
+  if (authImage && authImage.bucket && authImage.key) {
+    return {
+      mode: 'private',
+      bucket: String(authImage.bucket).trim(),
+      key: String(authImage.key).trim(),
+      filename: String(authImage.filename || '').trim()
+    };
+  }
+
+  if (imageUrl) {
+    return {
+      mode: 'public',
+      url: imageUrl
+    };
+  }
+
+  return null;
+}
+
+function recordMaterialAccess(params) {
+  const {
+    adminId,
+    taskId,
+    userId,
+    type,
+    bucket,
+    key,
+    mode,
+    ip,
+    userAgent
+  } = params;
+
+  db.prepare(`
+    INSERT INTO auth_material_access_logs (
+      admin_id, task_id, user_id, type, bucket, object_key, access_mode, ip, user_agent
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    adminId,
+    taskId,
+    userId,
+    type,
+    bucket || '',
+    key || '',
+    mode,
+    ip || '',
+    userAgent || ''
+  );
 }
 
 function sortByPriority(list) {
@@ -325,7 +383,75 @@ exports.getTaskDetail = (req, res) => {
   if (!task) {
     return res.status(404).json({ success: false, message: '审核任务不存在' });
   }
-  res.json({ success: true, data: task });
+  res.json({ success: true, data: normalizeTask(task) });
+};
+
+exports.getTaskFileUrl = async (req, res) => {
+  try {
+    const task = normalizeTask(db.prepare('SELECT * FROM verification_tasks WHERE id = ?').get(req.params.id));
+    if (!task) {
+      return res.status(404).json({ success: false, message: '审核任务不存在' });
+    }
+
+    const preview = getPreviewPayload(task);
+    if (!preview) {
+      return res.status(404).json({ success: false, message: '未找到认证材料' });
+    }
+
+    if (preview.mode === 'public') {
+      recordMaterialAccess({
+        adminId: req.admin.id,
+        taskId: task.id,
+        userId: task.user_id,
+        type: task.type,
+        bucket: '',
+        key: preview.url,
+        mode: preview.mode,
+        ip: req.ip,
+        userAgent: req.get('user-agent') || ''
+      });
+      return res.json({ success: true, data: { url: preview.url, mode: preview.mode } });
+    }
+
+    if (!INTERNAL_SERVICE_TOKEN) {
+      return res.status(500).json({ success: false, message: 'Missing INTERNAL_SERVICE_TOKEN' });
+    }
+
+    const response = await axios.get(`${INTERNAL_API_BASE}/api/internal/oss/private-object-url`, {
+      params: {
+        bucket: preview.bucket,
+        key: preview.key
+      },
+      headers: {
+        'x-internal-token': INTERNAL_SERVICE_TOKEN
+      },
+      timeout: 10000
+    });
+
+    recordMaterialAccess({
+      adminId: req.admin.id,
+      taskId: task.id,
+      userId: task.user_id,
+      type: task.type,
+      bucket: preview.bucket,
+      key: preview.key,
+      mode: preview.mode,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || ''
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        url: response.data?.data?.url || '',
+        mode: preview.mode,
+        key: preview.key,
+        filename: preview.filename || ''
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 exports.approveTask = (req, res) => {

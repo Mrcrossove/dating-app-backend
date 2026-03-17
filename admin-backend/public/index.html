@@ -276,6 +276,32 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
+function getTaskPreview(task) {
+  const submitted = task?.submitted_data || {};
+  if (submitted?.authImage?.key) {
+    return {
+      mode: 'private',
+      key: submitted.authImage.key,
+      label: submitted.authImage.filename || submitted.authImage.key.split('/').pop() || '认证材料'
+    };
+  }
+  const imageUrl = submitted?.imageUrl || submitted?.image || '';
+  if (imageUrl) {
+    return {
+      mode: 'public',
+      url: imageUrl,
+      label: '认证材料'
+    };
+  }
+  return null;
+}
+
+function renderTaskPreview(task) {
+  const preview = getTaskPreview(task);
+  if (!preview || !task?.id) return '';
+  return `<div class="review-actions"><button class="btn btn-outline btn-sm" onclick="openTaskMaterial('${esc(task.id)}')">查看材料</button></div>`;
+}
+
 async function apiFetch(path, options = {}) {
   const res = await fetch(API + path, {
     ...options,
@@ -468,7 +494,7 @@ function renderTaskSection(type, task) {
         <div class="kv"><div class="k">出生日期</div><div class="v">${esc(task.birth_date || '-')}</div></div>
       </div>`;
   } else {
-    body = `<div class="kv-grid">${Object.keys(submitted).length ? Object.entries(submitted).map(([key, value]) => `<div class="kv"><div class="k">${esc(key)}</div><div class="v">${typeof value === 'object' ? esc(JSON.stringify(value)) : esc(value || '-')}</div></div>`).join('') : '<div class="kv"><div class="k">提交数据</div><div class="v">无</div></div>'}</div>`;
+    body = `<div class="kv-grid">${Object.keys(submitted).length ? Object.entries(submitted).map(([key, value]) => `<div class="kv"><div class="k">${esc(key)}</div><div class="v">${typeof value === 'object' ? esc(JSON.stringify(value)) : esc(value || '-')}</div></div>`).join('') : '<div class="kv"><div class="k">提交数据</div><div class="v">无</div></div>'}</div>${renderTaskPreview(task)}`;
   }
 
   return `
@@ -532,6 +558,7 @@ function buildModalForm(type, task) {
   }
   return `
     <div class="kv-grid" style="margin-bottom:8px;">${Object.entries(task?.submitted_data || {}).map(([key, value]) => `<div class="kv"><div class="k">${esc(key)}</div><div class="v">${typeof value === 'object' ? esc(JSON.stringify(value)) : esc(value || '-')}</div></div>`).join('') || '<div class="kv"><div class="k">提交数据</div><div class="v">无</div></div>'}</div>
+    ${renderTaskPreview(task)}
     <div class="field"><label>审核备注</label><textarea id="formNote">${note}</textarea></div>`;
 }
 
@@ -542,6 +569,16 @@ function openTaskModal(type) {
   document.getElementById('modalBody').innerHTML = buildModalForm(type, task);
   document.getElementById('reviewModal').classList.add('show');
 }
+
+async function openTaskMaterial(taskId) {
+  const res = await apiFetch(`/admin/verification/${encodeURIComponent(taskId)}/file-url`);
+  if (!res?.success || !res.data?.url) {
+    alert(res?.message || '材料链接获取失败');
+    return;
+  }
+  window.open(res.data.url, '_blank', 'noopener');
+}
+
 function closeModal() {
   document.getElementById('reviewModal').classList.remove('show');
   currentReviewTarget = null;

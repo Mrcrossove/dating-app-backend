@@ -103,3 +103,47 @@ export const getUserToken = async (imUserId: string) => {
     expiresIn
   };
 };
+
+export const sendTextMessageAsUser = async (params: {
+  from: string;
+  to: string;
+  text: string;
+}) => {
+  const { from, to, text } = params;
+  const appToken = await getAppToken();
+
+  const safeFrom = String(from || '').trim();
+  const safeTo = String(to || '').trim();
+  const safeText = String(text || '').trim();
+
+  if (!safeFrom || !safeTo || !safeText) {
+    throw new Error('Missing EaseMob text message params');
+  }
+
+  await Promise.all([
+    getUserToken(safeFrom),
+    getUserToken(safeTo)
+  ]);
+
+  const res = await axios.post(
+    `${getBaseUrl()}/messages/users`,
+    {
+      target_type: 'users',
+      target: [safeTo],
+      msg: {
+        type: 'txt',
+        msg: safeText
+      },
+      from: safeFrom
+    },
+    {
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${appToken}`
+      }
+    }
+  );
+
+  return res.data;
+};

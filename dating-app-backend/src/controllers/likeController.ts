@@ -1,12 +1,17 @@
 import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Like, User, Photo } from '../models';
+import { Like, User, Photo, Message } from '../models';
 import {
   ensureMatchForUsers,
   findMatchByUsers,
-  serializeMatchForViewer
+  serializeMatchForViewer,
+  MATCH_STAGE
 } from '../services/matchService';
+import { buildImUserId, sendTextMessageAsUser } from '../services/easemobService';
+import { hasDiscoverVipAccess } from '../services/vipService';
+
+const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
 
 const buildUserCard = (user: any) => ({
   id: user.id,
@@ -43,6 +48,17 @@ const attachMatchToItems = async (params: {
       return mapBase(item, matchPayload);
     })
   );
+};
+
+const ensureImUserId = async (user: any) => {
+  if (!user) return '';
+  const current = String(user.im_user_id || '').trim();
+  if (current) return current;
+
+  const imUserId = buildImUserId(String(user.id || ''));
+  await user.update({ im_user_id: imUserId } as any);
+  user.setDataValue('im_user_id', imUserId);
+  return imUserId;
 };
 
 export const toggleLike = async (req: AuthRequest, res: Response) => {
@@ -83,8 +99,54 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     ]);
 
     let matchPayload = null;
+    let autoMessageSent = false;
+    let peerImUserId: string | null = null;
     if (mutual && currentUser && targetUser) {
+      const [senderImUserId, receiverImUserId] = await Promise.all([
+        ensureImUserId(currentUser),
+        ensureImUserId(targetUser)
+      ]);
       const match = await ensureMatchForUsers(currentUser, targetUser);
+      const matchUpdates: Record<string, any> = {};
+      if (String(match.getDataValue('stage') || '') !== MATCH_STAGE.CHAT_STARTED) {
+        matchUpdates.stage = MATCH_STAGE.CHAT_STARTED;
+      }
+      if (!match.getDataValue('chat_started_at')) {
+        matchUpdates.chat_started_at = new Date();
+      }
+
+      if (Object.keys(matchUpdates).length) {
+        await match.update(matchUpdates);
+      }
+
+      if (!match.getDataValue('chat_start_message_sent')) {
+        try {
+          await sendTextMessageAsUser({
+            from: senderImUserId,
+            to: receiverImUserId,
+            text: DEFAULT_MATCH_MESSAGE
+          });
+          await Message.create({
+            sender_id: currentUser.id,
+            receiver_id: targetUser.id,
+            content: DEFAULT_MATCH_MESSAGE,
+            message_type: 'system',
+            is_read: false
+          } as any);
+          await match.update({
+            chat_start_message_sent: true,
+            stage: MATCH_STAGE.CHAT_STARTED,
+            chat_started_at: match.getDataValue('chat_started_at') || new Date()
+          });
+          autoMessageSent = true;
+        } catch (imError: any) {
+          console.error('[Like] auto match message failed:', imError?.message || imError);
+        }
+      } else {
+        autoMessageSent = true;
+      }
+
+      peerImUserId = receiverImUserId || null;
       matchPayload = serializeMatchForViewer({
         match,
         viewerId: userId,
@@ -98,7 +160,10 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
       liked: true,
       matched: !!matchPayload,
       match: matchPayload,
-      mode: isSuperLike ? 'super_like' : 'like'
+      mode: isSuperLike ? 'super_like' : 'like',
+      auto_message_sent: autoMessageSent,
+      peer_im_user_id: peerImUserId,
+      peer_user: targetUser ? buildUserCard(targetUser) : null
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
@@ -108,6 +173,7 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
 export const getLikedBy = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    const hasVipAccess = await hasDiscoverVipAccess(userId);
     const likes = await Like.findAll({
       where: { target_id: userId },
       include: [{
@@ -118,6 +184,26 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
       }],
       order: [['created_at', 'DESC']]
     });
+
+    if (!hasVipAccess) {
+      const data = likes.map((like: any) => ({
+        id: like.id,
+        created_at: like.created_at,
+        locked: true,
+        user: {
+          photo: like.user?.photos?.[0]?.url || like.user?.avatar_url || null
+        }
+      }));
+
+      return res.status(200).json({
+        success: true,
+        data,
+        meta: {
+          viewer_has_vip: false,
+          total: data.length
+        }
+      });
+    }
 
     const data = await attachMatchToItems({
       viewerId: userId,
@@ -132,7 +218,14 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
       })
     });
 
-    return res.status(200).json({ success: true, data });
+    return res.status(200).json({
+      success: true,
+      data,
+      meta: {
+        viewer_has_vip: true,
+        total: data.length
+      }
+    });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }

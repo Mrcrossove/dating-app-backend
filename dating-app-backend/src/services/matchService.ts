@@ -101,6 +101,7 @@ export const serializeMatchForViewer = (params: {
     chat_started_at: plain.chat_started_at || null,
     chat_start_message_sent: !!plain.chat_start_message_sent,
     my_role: myRole,
+    can_chat: stage === MATCH_STAGE.CHAT_STARTED,
     can_send_question: myRole === 'female' && stage === MATCH_STAGE.MATCHED,
     can_answer_question: myRole === 'male' && stage === MATCH_STAGE.QUESTION_SENT,
     can_start_chat: myRole === 'female' && stage === MATCH_STAGE.ANSWERED,

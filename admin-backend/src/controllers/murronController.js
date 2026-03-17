@@ -1,11 +1,16 @@
 const axios = require('axios');
 const { db } = require('../models/database');
 
-const MURRON_URL = process.env.MURRON_API_URL;
-const MURRON_KEY = process.env.MURRON_API_KEY;
+const DEFAULT_MURRON_URL = 'https://www.murron-omni.com/apps/api/v1/workflows/run';
+const DEFAULT_MURRON_KEY = 'app-SNF2iQnn3TRDzK0Nkt95W2PQ';
+const DEFAULT_DAYUN_URL = 'https://www.murron-omni.com/apps/api/v1/workflows/run';
+const DEFAULT_DAYUN_KEY = 'app-bygb4gYS50Ka2aqF5HFxrwqd';
+
+const MURRON_URL = process.env.MURRON_API_URL || DEFAULT_MURRON_URL;
+const MURRON_KEY = process.env.MURRON_API_KEY || DEFAULT_MURRON_KEY;
 const CURRENT_DATE = '丙午';
-const DAYUN_URL = process.env.DAYUN_API_URL || 'https://www.murron-omni.com/v1/workflows/run';
-const DAYUN_KEY = process.env.DAYUN_API_KEY || 'app-OuLMHlENy58k2CUZJdorgKDX';
+const DAYUN_URL = process.env.DAYUN_API_URL || DEFAULT_DAYUN_URL;
+const DAYUN_KEY = process.env.DAYUN_API_KEY || DEFAULT_DAYUN_KEY;
 
 function buildBaziString(gender, yearPillar, monthPillar, dayPillar, hourPillar) {
   const genderText = gender === 'female' ? '女嘉宾' : '男嘉宾';

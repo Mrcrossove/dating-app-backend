@@ -1,3 +1,4 @@
+import sequelize from '../config/database';
 import { Match } from '../models';
 
 export const MATCH_STAGE = {
@@ -7,13 +8,62 @@ export const MATCH_STAGE = {
   CHAT_STARTED: 'chat_started'
 } as const;
 
+const MATCH_QUERY_COLUMNS = [
+  'id',
+  'user1_id',
+  'user2_id',
+  'female_id',
+  'male_id',
+  'female_question',
+  'male_answer',
+  'question_created_at',
+  'answer_created_at',
+  'chat_started_at',
+  'chat_start_message_sent',
+  'stage',
+  'compatibility_score',
+  'status',
+  'created_at'
+] as const;
+
+let cachedMatchColumns: Set<string> | null = null;
+
+const getMatchColumns = async (): Promise<Set<string>> => {
+  if (cachedMatchColumns) return cachedMatchColumns;
+
+  try {
+    const table = await sequelize.getQueryInterface().describeTable('matches');
+    cachedMatchColumns = new Set(Object.keys(table || {}));
+  } catch (error) {
+    console.warn('[Match] describeTable failed, fallback to query columns:', error);
+    cachedMatchColumns = new Set(MATCH_QUERY_COLUMNS);
+  }
+
+  return cachedMatchColumns;
+};
+
+export const getMatchSelectableAttributes = async (): Promise<string[]> => {
+  const columns = await getMatchColumns();
+  return MATCH_QUERY_COLUMNS.filter((column) => columns.has(column));
+};
+
+export const pickMatchAvailableFields = async (payload: Record<string, any>): Promise<Record<string, any>> => {
+  const columns = await getMatchColumns();
+  return Object.entries(payload || {}).reduce((acc, [key, value]) => {
+    if (columns.has(key)) acc[key] = value;
+    return acc;
+  }, {} as Record<string, any>);
+};
+
 export const getOrderedPair = (a: string, b: string) => (
   String(a) < String(b) ? [String(a), String(b)] : [String(b), String(a)]
 );
 
 export const findMatchByUsers = async (userAId: string, userBId: string) => {
   const [user1Id, user2Id] = getOrderedPair(userAId, userBId);
+  const attributes = await getMatchSelectableAttributes();
   return Match.findOne({
+    attributes: attributes as any,
     where: {
       user1_id: user1Id,
       user2_id: user2Id
@@ -47,26 +97,23 @@ export const resolveRoles = (userA: any, userB: any) => {
 export const ensureMatchForUsers = async (userA: any, userB: any) => {
   const [user1Id, user2Id] = getOrderedPair(String(userA.id), String(userB.id));
   const roles = resolveRoles(userA, userB);
-
-  const [match] = await Match.findOrCreate({
-    where: { user1_id: user1Id, user2_id: user2Id },
-    defaults: {
-      user1_id: user1Id,
-      user2_id: user2Id,
-      female_id: roles.femaleId,
-      male_id: roles.maleId,
-      compatibility_score: 50,
-      status: 'active',
-      stage: MATCH_STAGE.MATCHED
-    } as any
-  });
+  const existingMatch = await findMatchByUsers(user1Id, user2Id);
+  const match = existingMatch || await Match.create((await pickMatchAvailableFields({
+    user1_id: user1Id,
+    user2_id: user2Id,
+    female_id: roles.femaleId,
+    male_id: roles.maleId,
+    compatibility_score: 50,
+    status: 'active',
+    stage: MATCH_STAGE.MATCHED
+  })) as any);
 
   const updates: Record<string, any> = {};
   if (!match.getDataValue('female_id') && roles.femaleId) updates.female_id = roles.femaleId;
   if (!match.getDataValue('male_id') && roles.maleId) updates.male_id = roles.maleId;
   if (!match.getDataValue('stage')) updates.stage = MATCH_STAGE.MATCHED;
   if (Object.keys(updates).length) {
-    await match.update(updates);
+    await match.update((await pickMatchAvailableFields(updates)) as any);
   }
 
   return match;

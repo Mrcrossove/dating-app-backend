@@ -3,13 +3,18 @@ import { AuthRequest } from '../middleware/auth';
 import { Match, User } from '../models';
 import {
   MATCH_STAGE,
+  getMatchSelectableAttributes,
   findMatchByUsers,
   normalizeMatchStage,
+  pickMatchAvailableFields,
   serializeMatchForViewer
 } from '../services/matchService';
 
 const getMatchWithUsers = async (matchId: string) => {
-  const match = await Match.findByPk(matchId);
+  const attributes = await getMatchSelectableAttributes();
+  const match = await Match.findByPk(matchId, {
+    attributes: attributes as any
+  });
   if (!match) return null;
 
   const userIds = [match.getDataValue('user1_id'), match.getDataValue('user2_id')].filter(Boolean);
@@ -90,13 +95,14 @@ export const sendQuestion = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Current stage cannot send question' });
     }
 
-    await match.update({
+    const updates = await pickMatchAvailableFields({
       female_question: question,
       male_answer: null,
       answer_created_at: null,
       question_created_at: new Date(),
       stage: MATCH_STAGE.QUESTION_SENT
     });
+    await match.update(updates);
 
     const otherUser = getOtherUser(match, userMap, viewerId);
     return res.status(200).json({
@@ -137,11 +143,12 @@ export const answerQuestion = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Question has not been sent yet' });
     }
 
-    await match.update({
+    const updates = await pickMatchAvailableFields({
       male_answer: answer,
       answer_created_at: new Date(),
       stage: MATCH_STAGE.ANSWERED
     });
+    await match.update(updates);
 
     const otherUser = getOtherUser(match, userMap, viewerId);
     return res.status(200).json({
@@ -178,11 +185,12 @@ export const startChat = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Answer required before starting chat' });
     }
 
-    await match.update({
+    const updates = await pickMatchAvailableFields({
       chat_started_at: match.getDataValue('chat_started_at') || new Date(),
       chat_start_message_sent: true,
       stage: MATCH_STAGE.CHAT_STARTED
     });
+    await match.update(updates);
 
     const otherUser = getOtherUser(match, userMap, viewerId);
     return res.status(200).json({

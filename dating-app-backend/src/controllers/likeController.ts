@@ -5,6 +5,7 @@ import { Like, User, Photo, Message } from '../models';
 import {
   ensureMatchForUsers,
   findMatchByUsers,
+  pickMatchAvailableFields,
   serializeMatchForViewer,
   MATCH_STAGE
 } from '../services/matchService';
@@ -127,7 +128,10 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
       }
 
       if (Object.keys(matchUpdates).length) {
-        await match.update(matchUpdates);
+        const filteredUpdates = await pickMatchAvailableFields(matchUpdates);
+        if (Object.keys(filteredUpdates).length) {
+          await match.update(filteredUpdates);
+        }
       }
 
       if (!match.getDataValue('chat_start_message_sent')) {
@@ -144,11 +148,14 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
             message_type: 'system',
             is_read: false
           } as any);
-          await match.update({
+          const finalUpdates = await pickMatchAvailableFields({
             chat_start_message_sent: true,
             stage: MATCH_STAGE.CHAT_STARTED,
             chat_started_at: match.getDataValue('chat_started_at') || new Date()
           });
+          if (Object.keys(finalUpdates).length) {
+            await match.update(finalUpdates);
+          }
           autoMessageSent = true;
         } catch (imError: any) {
           console.error('[Like] auto match message failed:', imError?.message || imError);

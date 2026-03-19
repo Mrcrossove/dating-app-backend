@@ -7,6 +7,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { DataTypes } from 'sequelize';
 import routes from './routes';
 import sequelize from './config/database';
 import fs from 'fs';
@@ -121,16 +122,58 @@ const ensurePostColumns = async () => {
 };
 
 const ensureMatchColumns = async () => {
-  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
-  await sql('ALTER TABLE matches ADD COLUMN female_id TEXT;');
-  await sql('ALTER TABLE matches ADD COLUMN male_id TEXT;');
-  await sql('ALTER TABLE matches ADD COLUMN female_question TEXT;');
-  await sql('ALTER TABLE matches ADD COLUMN male_answer TEXT;');
-  await sql('ALTER TABLE matches ADD COLUMN question_created_at DATETIME;');
-  await sql('ALTER TABLE matches ADD COLUMN answer_created_at DATETIME;');
-  await sql('ALTER TABLE matches ADD COLUMN chat_started_at DATETIME;');
-  await sql('ALTER TABLE matches ADD COLUMN chat_start_message_sent BOOLEAN DEFAULT 0;');
-  await sql("ALTER TABLE matches ADD COLUMN stage TEXT DEFAULT 'matched';");
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await queryInterface.describeTable('matches').catch(() => null);
+  if (!table) return;
+
+  const addColumnIfMissing = async (name: string, definition: any) => {
+    if (table[name]) return;
+    try {
+      await queryInterface.addColumn('matches', name, definition);
+      console.log(`[DB] matches.${name} added`);
+    } catch (error) {
+      console.error(`[DB] failed to add matches.${name}:`, error);
+    }
+  };
+
+  await addColumnIfMissing('female_id', {
+    type: DataTypes.TEXT,
+    allowNull: true
+  });
+  await addColumnIfMissing('male_id', {
+    type: DataTypes.TEXT,
+    allowNull: true
+  });
+  await addColumnIfMissing('female_question', {
+    type: DataTypes.TEXT,
+    allowNull: true
+  });
+  await addColumnIfMissing('male_answer', {
+    type: DataTypes.TEXT,
+    allowNull: true
+  });
+  await addColumnIfMissing('question_created_at', {
+    type: DataTypes.DATE,
+    allowNull: true
+  });
+  await addColumnIfMissing('answer_created_at', {
+    type: DataTypes.DATE,
+    allowNull: true
+  });
+  await addColumnIfMissing('chat_started_at', {
+    type: DataTypes.DATE,
+    allowNull: true
+  });
+  await addColumnIfMissing('chat_start_message_sent', {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  });
+  await addColumnIfMissing('stage', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: 'matched'
+  });
 };
 
 const startServer = async () => {

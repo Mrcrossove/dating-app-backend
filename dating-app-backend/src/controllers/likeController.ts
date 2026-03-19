@@ -114,62 +114,77 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     let autoMessageSent = false;
     let peerImUserId: string | null = null;
     if (mutual && currentUser && targetUser) {
-      const [senderImUserId, receiverImUserId] = await Promise.all([
-        ensureImUserId(currentUser),
-        ensureImUserId(targetUser)
-      ]);
-      const match = await ensureMatchForUsers(currentUser, targetUser);
-      const matchUpdates: Record<string, any> = {};
-      if (String(match.getDataValue('stage') || '') !== MATCH_STAGE.CHAT_STARTED) {
-        matchUpdates.stage = MATCH_STAGE.CHAT_STARTED;
-      }
-      if (!match.getDataValue('chat_started_at')) {
-        matchUpdates.chat_started_at = new Date();
-      }
+      try {
+        const match = await ensureMatchForUsers(currentUser, targetUser);
 
-      if (Object.keys(matchUpdates).length) {
-        const filteredUpdates = await pickMatchAvailableFields(matchUpdates);
-        if (Object.keys(filteredUpdates).length) {
-          await match.update(filteredUpdates);
-        }
-      }
-
-      if (!match.getDataValue('chat_start_message_sent')) {
         try {
-          await sendTextMessageAsUser({
-            from: senderImUserId,
-            to: receiverImUserId,
-            text: DEFAULT_MATCH_MESSAGE
-          });
-          await Message.create({
-            sender_id: currentUser.id,
-            receiver_id: targetUser.id,
-            content: DEFAULT_MATCH_MESSAGE,
-            message_type: 'system',
-            is_read: false
-          } as any);
-          const finalUpdates = await pickMatchAvailableFields({
-            chat_start_message_sent: true,
-            stage: MATCH_STAGE.CHAT_STARTED,
-            chat_started_at: match.getDataValue('chat_started_at') || new Date()
-          });
-          if (Object.keys(finalUpdates).length) {
-            await match.update(finalUpdates);
-          }
-          autoMessageSent = true;
-        } catch (imError: any) {
-          console.error('[Like] auto match message failed:', imError?.message || imError);
-        }
-      } else {
-        autoMessageSent = true;
-      }
+          const [senderImUserId, receiverImUserId] = await Promise.all([
+            ensureImUserId(currentUser),
+            ensureImUserId(targetUser)
+          ]);
+          peerImUserId = receiverImUserId || null;
 
-      peerImUserId = receiverImUserId || null;
-      matchPayload = serializeMatchForViewer({
-        match,
-        viewerId: userId,
-        otherUser: targetUser
-      });
+          const matchUpdates: Record<string, any> = {};
+          if (String(match.getDataValue('stage') || '') !== MATCH_STAGE.CHAT_STARTED) {
+            matchUpdates.stage = MATCH_STAGE.CHAT_STARTED;
+          }
+          if (!match.getDataValue('chat_started_at')) {
+            matchUpdates.chat_started_at = new Date();
+          }
+
+          if (Object.keys(matchUpdates).length) {
+            const filteredUpdates = await pickMatchAvailableFields(matchUpdates);
+            if (Object.keys(filteredUpdates).length) {
+              await match.update(filteredUpdates);
+            }
+          }
+
+          if (!match.getDataValue('chat_start_message_sent')) {
+            await sendTextMessageAsUser({
+              from: senderImUserId,
+              to: receiverImUserId,
+              text: DEFAULT_MATCH_MESSAGE
+            });
+            await Message.create({
+              sender_id: currentUser.id,
+              receiver_id: targetUser.id,
+              content: DEFAULT_MATCH_MESSAGE,
+              message_type: 'system',
+              is_read: false
+            } as any);
+            const finalUpdates = await pickMatchAvailableFields({
+              chat_start_message_sent: true,
+              stage: MATCH_STAGE.CHAT_STARTED,
+              chat_started_at: match.getDataValue('chat_started_at') || new Date()
+            });
+            if (Object.keys(finalUpdates).length) {
+              await match.update(finalUpdates);
+            }
+            autoMessageSent = true;
+          } else {
+            autoMessageSent = true;
+          }
+        } catch (imError: any) {
+          console.error('[Like] auto match message failed:', {
+            userId,
+            targetId,
+            error: imError?.message || imError,
+            data: imError?.response?.data || null
+          });
+        }
+
+        matchPayload = serializeMatchForViewer({
+          match,
+          viewerId: userId,
+          otherUser: targetUser
+        });
+      } catch (matchError: any) {
+        console.error('[Like] ensureMatchForUsers failed:', {
+          userId,
+          targetId,
+          error: matchError?.message || matchError
+        });
+      }
     }
 
     return res.status(200).json({

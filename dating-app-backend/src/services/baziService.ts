@@ -462,6 +462,8 @@ export const calculateBaziWithBirthData = async (
       day_pillar: bazi.dayPillar,
       hour_pillar: bazi.hourPillar || '',
       element: bazi.dayElement,
+      strength: bazi.strength,
+      body_strength: bazi.strength,
       report: report,
       created_at: new Date(),
       updated_at: new Date()

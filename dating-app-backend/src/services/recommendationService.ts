@@ -1,14 +1,14 @@
 import { Op } from 'sequelize';
 import { cache } from '../config/redis';
 import sequelize from '../config/database';
-import { BaziInfo, Photo, Post, User } from '../models';
+import { BaziInfo, Photo, User } from '../models';
 import { calculateCompatibility } from './baziService';
 import { getSuperLikeBoostUserIds } from './vipService';
 
 const CACHE_TTL = 300;
 const MIN_COMPATIBILITY_SCORE = 70;
 const DEFAULT_PAGE_SIZE = 20;
-const SAMPLE_SIZE = 100;
+const SAMPLE_SIZE = 60;
 const MAX_CARD_PHOTOS = 6;
 const SUPER_LIKE_EXPOSURE_BOOST = 10;
 
@@ -185,32 +185,12 @@ const formatHeight = (value: unknown): string => {
   return `${Math.round(height)}cm`;
 };
 
-const getPostImageUrls = (post: any): string[] => {
-  const media = safeJsonParse(post?.media);
-  if (Array.isArray(media) && media.length > 0) {
-    return uniqueStrings(
-      media
-        .filter((item: any) => item && item.type === 'image')
-        .map((item: any) => item.url),
-      MAX_CARD_PHOTOS
-    );
-  }
-
-  const images = safeJsonParse(post?.images);
-  if (Array.isArray(images)) {
-    return uniqueStrings(images, MAX_CARD_PHOTOS);
-  }
-
-  return [];
-};
-
 const buildPhotoWall = (params: {
   avatarUrl: string;
   photoUrls: string[];
-  postImageUrls: string[];
 }): string[] => {
-  const { avatarUrl, photoUrls, postImageUrls } = params;
-  return uniqueStrings([avatarUrl, ...photoUrls, ...postImageUrls], MAX_CARD_PHOTOS);
+  const { avatarUrl, photoUrls } = params;
+  return uniqueStrings([avatarUrl, ...photoUrls], MAX_CARD_PHOTOS);
 };
 
 const buildDiscoverTags = (params: {
@@ -347,7 +327,7 @@ export class RecommendationService {
     const paginated = matched.slice(startIndex, startIndex + safeLimit);
     const paginatedUserIds = paginated.map(({ user }) => String(user.id));
 
-    const [photos, posts] = await Promise.all([
+    const photos = await (
       paginatedUserIds.length
         ? Photo.findAll({
             where: { user_id: { [Op.in]: paginatedUserIds } },
@@ -357,30 +337,16 @@ export class RecommendationService {
               ['created_at', 'DESC'],
             ],
           })
-        : Promise.resolve([]),
-      paginatedUserIds.length
-        ? Post.findAll({
-            where: { user_id: { [Op.in]: paginatedUserIds } },
-            attributes: ['user_id', 'images', 'media', 'created_at'] as any,
-            order: [['created_at', 'DESC']],
-          })
-        : Promise.resolve([]),
-    ]);
+        : Promise.resolve([])
+    );
 
     const photoMap = new Map<string, string[]>();
     (photos as any[]).forEach((photo) => {
       const ownerId = String(photo.user_id);
       const current = photoMap.get(ownerId) || [];
+      if (current.length >= MAX_CARD_PHOTOS) return;
       current.push(safeText(photo.url));
       photoMap.set(ownerId, current);
-    });
-
-    const postMap = new Map<string, string[]>();
-    (posts as any[]).forEach((post) => {
-      const ownerId = String(post.user_id);
-      const current = postMap.get(ownerId) || [];
-      current.push(...getPostImageUrls(post));
-      postMap.set(ownerId, current);
     });
 
     const data = paginated.map(({ user, score, exposureBoost }) => {
@@ -389,7 +355,6 @@ export class RecommendationService {
       const photoWall = buildPhotoWall({
         avatarUrl: safeText(user.avatar_url),
         photoUrls: photoMap.get(String(user.id)) || [],
-        postImageUrls: postMap.get(String(user.id)) || [],
       });
       const avatar = photoWall[0] || '';
       const height = formatHeight(user.height);

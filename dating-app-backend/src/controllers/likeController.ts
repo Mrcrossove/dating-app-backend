@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Like, User, Photo, Message } from '../models';
+import { Like, User, Photo } from '../models';
 import {
   ensureMatchForUsers,
   findMatchByUsers,
@@ -11,6 +11,7 @@ import {
 } from '../services/matchService';
 import { buildImUserId, sendTextMessageAsUser } from '../services/easemobService';
 import { hasDiscoverVipAccess, hasSuperLikeAccess } from '../services/vipService';
+import { recordConversationMessage } from '../services/conversationService';
 
 const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
 
@@ -145,13 +146,12 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
               to: receiverImUserId,
               text: DEFAULT_MATCH_MESSAGE
             });
-            await Message.create({
-              sender_id: currentUser.id,
-              receiver_id: targetUser.id,
+            await recordConversationMessage({
+              senderId: currentUser.id,
+              receiverId: targetUser.id,
               content: DEFAULT_MATCH_MESSAGE,
-              message_type: 'system',
-              is_read: false
-            } as any);
+              messageType: 'system'
+            });
             const finalUpdates = await pickMatchAvailableFields({
               chat_start_message_sent: true,
               stage: MATCH_STAGE.CHAT_STARTED,

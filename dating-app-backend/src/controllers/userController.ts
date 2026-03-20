@@ -1,10 +1,16 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { User, Message, Verification, Photo, Post } from '../models';
+import { User, Message, Verification, Photo, Post, ConversationSummary } from '../models';
 import { Op } from 'sequelize';
 import axios from 'axios';
 import { calculateBaziWithBirthData } from '../services/baziService';
 import { getProfileState } from '../services/profileService';
+import {
+  backfillConversationSummariesForUser,
+  markConversationRead,
+  recordConversationMessage,
+  resolveUserByTarget
+} from '../services/conversationService';
 import {
   formatBirthDateForDisplay,
   normalizeBirthDateText,
@@ -200,56 +206,42 @@ export const replacePhotos = async (req: AuthRequest, res: Response) => {
 export const getConversations = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        
-        // Find all unique users communicated with
-        // This is a simplified approach. Ideally, use a Conversations table.
-        // Or distinct query on Messages
-        
-        // Find users where I am sender
-        const sentTo = await Message.findAll({
-            where: { sender_id: userId },
-            attributes: ['receiver_id'],
-            group: ['receiver_id']
-        });
-        
-        // Find users where I am receiver
-        const receivedFrom = await Message.findAll({
-            where: { receiver_id: userId },
-            attributes: ['sender_id'],
-            group: ['sender_id']
+        await backfillConversationSummariesForUser(userId);
+        const summaries = await ConversationSummary.findAll({
+            where: { user_id: userId },
+            order: [
+              ['unread_count', 'DESC'],
+              ['last_message_at', 'DESC']
+            ],
+            include: [{
+              model: User,
+              as: 'peer_user',
+              attributes: ['id', 'username', 'nickname', 'avatar_url', 'im_user_id'],
+              include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+            }]
         });
 
-        const contactIds = new Set([
-            ...sentTo.map((m: any) => m.receiver_id),
-            ...receivedFrom.map((m: any) => m.sender_id)
-        ]);
-
-        const users = await User.findAll({
-            where: { id: { [Op.in]: Array.from(contactIds) } },
-            include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+        const conversations = summaries.map((summary: any) => {
+          const peer = summary.peer_user;
+          return {
+            conversation_id: summary.peer_im_user_id || peer?.im_user_id || peer?.id || '',
+            chat_type: summary.chat_type || 'singleChat',
+            user: {
+              id: peer?.id || summary.peer_user_id,
+              im_user_id: peer?.im_user_id || summary.peer_im_user_id || '',
+              username: peer?.nickname || peer?.username || '用户',
+              photo: peer?.photos?.[0]?.url || peer?.avatar_url || null
+            },
+            last_message: {
+              content: summary.last_message_content,
+              type: summary.last_message_type,
+              created_at: summary.last_message_at,
+              direction: summary.last_message_direction
+            },
+            unread: Number(summary.unread_count || 0),
+            blocked: !!summary.is_blocked
+          };
         });
-
-        // Map to conversation format
-        const conversations = await Promise.all(users.map(async (u: any) => {
-            const lastMessage = await Message.findOne({
-                where: {
-                    [Op.or]: [
-                        { sender_id: userId, receiver_id: u.id },
-                        { sender_id: u.id, receiver_id: userId }
-                    ]
-                },
-                order: [['created_at', 'DESC']]
-            });
-
-            return {
-                user: {
-                    id: u.id,
-                    username: u.username,
-                    photo: u.photos && u.photos.length > 0 ? u.photos[0].url : null
-                },
-                last_message: lastMessage
-            };
-        }));
 
         return res.status(200).json({ success: true, data: conversations });
 
@@ -261,16 +253,26 @@ export const getConversations = async (req: AuthRequest, res: Response) => {
 export const getMessages = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const { targetId } = req.params;
+        const rawTargetId = (req.params as any).targetId as string | string[] | undefined;
+        const targetId = Array.isArray(rawTargetId) ? rawTargetId[0] : rawTargetId;
+        const target = await resolveUserByTarget(String(targetId || ''));
+        if (!target) {
+          return res.status(404).json({ success: false, message: 'User not found' });
+        }
 
         const messages = await Message.findAll({
             where: {
                 [Op.or]: [
-                    { sender_id: userId, receiver_id: targetId },
-                    { sender_id: targetId, receiver_id: userId }
+                    { sender_id: userId, receiver_id: target.id },
+                    { sender_id: target.id, receiver_id: userId }
                 ]
             },
             order: [['created_at', 'ASC']]
+        });
+
+        await markConversationRead({
+          userId,
+          peerUserId: target.id
         });
 
         return res.status(200).json({ success: true, data: messages });
@@ -282,15 +284,27 @@ export const getMessages = async (req: AuthRequest, res: Response) => {
 export const sendMessage = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const { targetId } = req.params;
+        const rawTargetId = (req.params as any).targetId as string | string[] | undefined;
+        const targetId = Array.isArray(rawTargetId) ? rawTargetId[0] : rawTargetId;
+        const target = await resolveUserByTarget(String(targetId || ''));
         const { content, type } = req.body;
+        const normalizedContent = String(content || '').trim();
 
-        const message = await Message.create({
-            sender_id: userId,
-            receiver_id: targetId,
-            content,
-            message_type: type || 'text',
-            is_read: false
+        if (!target) {
+          return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        if (!normalizedContent) {
+          return res.status(400).json({ success: false, message: 'Message content is required' });
+        }
+        if (String(target.id) === String(userId)) {
+          return res.status(400).json({ success: false, message: 'Cannot send message to yourself' });
+        }
+
+        const message = await recordConversationMessage({
+            senderId: userId,
+            receiverId: target.id,
+            content: normalizedContent,
+            messageType: type || 'text'
         });
 
         return res.status(200).json({ success: true, data: message });

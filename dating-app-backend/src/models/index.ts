@@ -3,6 +3,7 @@ import Photo from './Photo';
 import BaziInfo from './BaziInfo';
 import Match from './Match';
 import Message from './Message';
+import ConversationSummary from './ConversationSummary';
 import Verification from './Verification';
 import Like from './Like';
 import Post from './Post';
@@ -33,6 +34,11 @@ User.hasMany(Message, { foreignKey: 'sender_id', as: 'sent_messages' });
 User.hasMany(Message, { foreignKey: 'receiver_id', as: 'received_messages' });
 Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
 Message.belongsTo(User, { foreignKey: 'receiver_id', as: 'receiver' });
+
+User.hasMany(ConversationSummary, { foreignKey: 'user_id', as: 'conversation_summaries' });
+User.hasMany(ConversationSummary, { foreignKey: 'peer_user_id', as: 'peer_conversation_summaries' });
+ConversationSummary.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+ConversationSummary.belongsTo(User, { foreignKey: 'peer_user_id', as: 'peer_user' });
 
 User.hasOne(Verification, { foreignKey: 'user_id', as: 'verification' });
 Verification.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
@@ -85,6 +91,7 @@ export {
   BaziInfo,
   Match,
   Message,
+  ConversationSummary,
   Verification,
   Like,
   Post,

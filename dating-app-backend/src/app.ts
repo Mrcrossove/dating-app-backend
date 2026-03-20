@@ -176,6 +176,62 @@ const ensureMatchColumns = async () => {
   });
 };
 
+const ensureConversationSummaryColumns = async () => {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await queryInterface.describeTable('conversation_summaries').catch(() => null);
+  if (!table) return;
+
+  const addColumnIfMissing = async (name: string, definition: any) => {
+    if (table[name]) return;
+    try {
+      await queryInterface.addColumn('conversation_summaries', name, definition);
+      console.log(`[DB] conversation_summaries.${name} added`);
+    } catch (error) {
+      console.error(`[DB] failed to add conversation_summaries.${name}:`, error);
+    }
+  };
+
+  await addColumnIfMissing('peer_im_user_id', {
+    type: DataTypes.TEXT,
+    allowNull: true
+  });
+  await addColumnIfMissing('chat_type', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: 'singleChat'
+  });
+  await addColumnIfMissing('last_message_content', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: ''
+  });
+  await addColumnIfMissing('last_message_type', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: 'text'
+  });
+  await addColumnIfMissing('last_message_direction', {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: 'send'
+  });
+  await addColumnIfMissing('last_message_at', {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW
+  });
+  await addColumnIfMissing('unread_count', {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  });
+  await addColumnIfMissing('is_blocked', {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  });
+};
+
 const startServer = async () => {
   try {
     await sequelize.authenticate();
@@ -185,6 +241,7 @@ const startServer = async () => {
     await ensureUserColumns();
     await ensurePostColumns();
     await ensureMatchColumns();
+    await ensureConversationSummaryColumns();
     console.log('Database synced.');
 
     app.listen(PORT, '0.0.0.0', () => {

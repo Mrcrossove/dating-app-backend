@@ -1,4 +1,4 @@
-import { BaziInfo } from '../models';
+﻿import { BaziInfo } from '../models';
 const { Solar, Lunar } = require('lunar-javascript');
 
 // ==============================================
@@ -208,6 +208,95 @@ function getXiyong(riGan: string, yueZhi: string): { 旺衰: string; 喜用神: 
 // ==============================================
 // 7. 简单大运
 // ==============================================
+function getResourceElementSafe(element: string): string {
+  const map: Record<string, string> = { '木': '水', '火': '木', '土': '火', '金': '土', '水': '金' };
+  return map[element] || '';
+}
+
+function getOutputElementSafe(element: string): string {
+  const map: Record<string, string> = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' };
+  return map[element] || '';
+}
+
+function getWealthElementSafe(element: string): string {
+  const map: Record<string, string> = { '木': '土', '火': '金', '土': '水', '金': '木', '水': '火' };
+  return map[element] || '';
+}
+
+function getOfficerElementSafe(element: string): string {
+  const map: Record<string, string> = { '木': '金', '火': '水', '土': '木', '金': '火', '水': '土' };
+  return map[element] || '';
+}
+
+function scoreElementRelationSafe(dayElement: string, targetElement: string, weight: number): number {
+  if (!targetElement) return 0;
+  if (targetElement === dayElement) return 1.0 * weight;
+  if (targetElement === getResourceElementSafe(dayElement)) return 0.85 * weight;
+  if (targetElement === getOutputElementSafe(dayElement)) return -0.65 * weight;
+  if (targetElement === getWealthElementSafe(dayElement)) return -0.85 * weight;
+  if (targetElement === getOfficerElementSafe(dayElement)) return -1.0 * weight;
+  return 0;
+}
+
+function resolveXiyongByStrengthSafe(dayElement: string, strength: string): { 喜用神: string; 忌神: string } {
+  const resourceElement = getResourceElementSafe(dayElement);
+  const wealthElement = getWealthElementSafe(dayElement);
+  const officerElement = getOfficerElementSafe(dayElement);
+
+  if (strength === '身旺') {
+    return { 喜用神: `${wealthElement}，${officerElement}`, 忌神: `${resourceElement}，${dayElement}` };
+  }
+
+  if (strength === '身弱') {
+    return { 喜用神: `${resourceElement}，${dayElement}`, 忌神: `${wealthElement}，${officerElement}` };
+  }
+
+  return { 喜用神: `${dayElement}，${resourceElement}`, 忌神: `${wealthElement}，${officerElement}` };
+}
+
+function getStrengthAndXiyong(
+  riGan: string,
+  yueZhi: string,
+  allGans: string[],
+  allZhis: string[]
+): { 旺衰: string; 喜用神: string; 忌神: string } {
+  const dayElement = GAN_WUXING[riGan];
+  if (!dayElement) {
+    return { 旺衰: '待判定', 喜用神: '待判定', 忌神: '待判定' };
+  }
+
+  let score = 1.2;
+  score += scoreElementRelationSafe(dayElement, ZHI_WUXING[yueZhi], 1.6);
+
+  allGans.forEach((gan, index) => {
+    if (!gan || index === 2) return;
+    score += scoreElementRelationSafe(dayElement, GAN_WUXING[gan], 1);
+  });
+
+  allZhis.forEach((zhi, index) => {
+    if (!zhi) return;
+    const branchWeight = index === 1 ? 1.2 : 0.9;
+    score += scoreElementRelationSafe(dayElement, ZHI_WUXING[zhi], branchWeight);
+
+    const hiddenGans = ZHI_CANG[zhi] || [];
+    hiddenGans.forEach((hiddenGan, hiddenIndex) => {
+      const hiddenWeight = (index === 1 ? 0.5 : 0.35) - hiddenIndex * 0.08;
+      score += scoreElementRelationSafe(dayElement, GAN_WUXING[hiddenGan], Math.max(hiddenWeight, 0.15));
+    });
+
+    if (hiddenGans.includes(riGan)) {
+      score += index === 2 ? 0.8 : 0.45;
+    }
+  });
+
+  let 旺衰 = '中和';
+  if (score >= 2.4) 旺衰 = '身旺';
+  else if (score <= -1.6) 旺衰 = '身弱';
+
+  const { 喜用神, 忌神 } = resolveXiyongByStrengthSafe(dayElement, 旺衰);
+  return { 旺衰, 喜用神, 忌神 };
+}
+
 function getDayun(yueGan: string, yueZhi: string, gender: string, isMan: boolean): string[] {
   const shun = (isMan && ['甲', '丙', '戊', '庚', '壬'].includes(yueGan)) ||
                (!isMan && ['乙', '丁', '己', '辛', '癸'].includes(yueGan));
@@ -265,7 +354,12 @@ function calcBazi(year: number, month: number, day: number, hour: number, isMan:
   const relation = getRelation([yearZhi, yueZhi, riZhi, shiZhi]);
 
   // 旺衰喜用
-  const { 旺衰, 喜用神, 忌神 } = getXiyong(riGan, yueZhi);
+  const { 旺衰, 喜用神, 忌神 } = getStrengthAndXiyong(
+    riGan,
+    yueZhi,
+    [yearGan, yueGan, riGan, shiZhu.charAt(0)],
+    [yearZhi, yueZhi, riZhi, shiZhi]
+  );
 
   // 大运
   const dayun = getDayun(yueGan, yueZhi, isMan ? '男' : '女', isMan);
@@ -545,3 +639,4 @@ export function calculateCompatibility(bazi1: any, bazi2: any): number {
   
   return Math.max(0, Math.min(100, score));
 }
+

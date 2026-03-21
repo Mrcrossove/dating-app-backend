@@ -5,6 +5,7 @@ import { Op } from 'sequelize';
 import axios from 'axios';
 import { calculateBaziWithBirthData } from '../services/baziService';
 import { getProfileState } from '../services/profileService';
+import { recommendationService } from '../services/recommendationService';
 import {
   backfillConversationSummariesForUser,
   markConversationRead,
@@ -526,6 +527,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
         if (user.profile_completed !== profile.completed) {
           await user.update({ profile_completed: profile.completed });
         }
+        await recommendationService.clearDiscoverCache();
 
         // 注册完善资料时：自动计算八字并提交审核任务（只要生日和性别齐全）
         if (isTryingToChangeBaziInputs) {

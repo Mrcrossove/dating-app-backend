@@ -38,6 +38,7 @@ interface DiscoverWishItem {
 
 interface ParsedProfileExtras {
   purpose: string;
+  expectation: string;
   qaList: DiscoverQaItem[];
   lifestyleList: DiscoverLifestyleItem[];
   wishList: DiscoverWishItem[];
@@ -64,6 +65,7 @@ interface RecommendationResult {
     intro: string;
     love_view: string;
     purpose: string;
+    expectation: string;
     interests: string[];
     tags: string[];
     qaList: DiscoverQaItem[];
@@ -159,6 +161,7 @@ const parseProfileExtras = (raw: unknown): ParsedProfileExtras => {
 
   return {
     purpose: safeText(parsed.purpose, 24),
+    expectation: safeText(parsed.expectation, 48),
     qaList,
     lifestyleList,
     wishList,
@@ -365,6 +368,7 @@ export class RecommendationService {
       const constellation = safeText(user.constellation);
       const mbti = safeText(user.mbti);
       const purpose = extras.purpose;
+      const expectation = extras.expectation;
 
       return {
         user: {
@@ -387,6 +391,7 @@ export class RecommendationService {
           intro: safeText(user.intro, 120),
           love_view: safeText(user.love_view, 120),
           purpose,
+          expectation,
           interests,
           tags: buildDiscoverTags({
             height,

@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { Like, User, Photo } from '../models';
+import { Like, User, Photo, BaziInfo } from '../models';
 import {
   ensureMatchForUsers,
   findMatchByUsers,
@@ -15,17 +15,38 @@ import { recordConversationMessage } from '../services/conversationService';
 
 const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
 
-const buildUserCard = (user: any) => ({
-  id: user.id,
-  im_user_id: user.im_user_id || null,
-  username: user.nickname || user.username,
-  nickname: user.nickname || user.username,
-  gender: user.gender,
-  birth_date: user.birth_date,
-  hometown: user.hometown || '',
-  job: user.job || '',
-  photo: user.photos?.[0]?.url || user.avatar_url || null
-});
+const cleanPillar = (value: unknown) => String(value || '').trim().replace(/\s+/g, '').slice(0, 2);
+
+const buildDayPillarLabel = (baziInfo: any) => {
+  const dayPillar = cleanPillar(baziInfo?.day_pillar || baziInfo?.dayPillar || baziInfo?.day);
+  const dayStem = dayPillar.charAt(0);
+  const element = String(baziInfo?.element || '').trim();
+
+  if (dayStem && element) return `${dayStem}${element}`;
+  return element || dayPillar || '';
+};
+
+const buildUserCard = (user: any) => {
+  const baziInfo = user?.bazi_info || null;
+  const dayPillar = cleanPillar(baziInfo?.day_pillar);
+  const dayPillarLabel = buildDayPillarLabel(baziInfo);
+
+  return {
+    id: user.id,
+    im_user_id: user.im_user_id || null,
+    username: user.nickname || user.username,
+    nickname: user.nickname || user.username,
+    gender: user.gender,
+    birth_date: user.birth_date,
+    hometown: user.hometown || '',
+    job: user.job || '',
+    photo: user.photos?.[0]?.url || user.avatar_url || null,
+    day_pillar: dayPillar,
+    element: String(baziInfo?.element || '').trim(),
+    day_pillar_label: dayPillarLabel,
+    element_label: dayPillarLabel
+  };
+};
 
 const attachMatchToItems = async (params: {
   viewerId: string;
@@ -213,7 +234,10 @@ export const getLikedBy = async (req: AuthRequest, res: Response) => {
         model: User,
         as: 'user',
         attributes: ['id', 'username', 'nickname', 'gender', 'birth_date', 'avatar_url', 'hometown', 'job', 'im_user_id'],
-        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+        include: [
+          { model: Photo, as: 'photos', where: { is_primary: true }, required: false },
+          { model: BaziInfo, as: 'bazi_info', attributes: ['day_pillar', 'element'], required: false }
+        ]
       }],
       order: [['created_at', 'DESC']]
     });

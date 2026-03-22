@@ -15,7 +15,7 @@ const DAYUN_KEY = process.env.DAYUN_API_KEY || DEFAULT_DAYUN_KEY;
 
 function buildBaziString(gender, yearPillar, monthPillar, dayPillar, hourPillar) {
   const genderText = gender === 'female' ? '女嘉宾' : '男嘉宾';
-  return `${genderText}：年柱：${yearPillar}。月柱：${monthPillar}。日柱：${dayPillar}。时柱：${hourPillar}。`;
+  return `${genderText}：年柱：${yearPillar}，月柱：${monthPillar}。日柱：${dayPillar}。时柱：${hourPillar}`;
 }
 
 async function callMurronAPI(inputs, userId) {

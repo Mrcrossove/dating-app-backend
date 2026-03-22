@@ -20,6 +20,25 @@ import {
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 
+const buildOssThumbUrl = (value: unknown, width: number, quality = 62): string => {
+  const source = String(value || '').trim();
+  if (!source || !/^https?:\/\//i.test(source)) return source;
+  if (source.includes('x-oss-process=')) return source;
+
+  let hostname = '';
+  try {
+    hostname = new URL(source).hostname.toLowerCase();
+  } catch (_) {
+    return source;
+  }
+
+  const isOssDomain = hostname.endsWith('aliyuncs.com') && hostname.includes('.oss-');
+  if (!isOssDomain) return source;
+
+  const separator = source.includes('?') ? '&' : '?';
+  return `${source}${separator}x-oss-process=image/resize,m_fill,w_${Math.max(240, width)}/quality,Q_${Math.max(40, Math.min(quality, 90))}/format,webp`;
+};
+
 const serializeUserProfile = (user: any) => {
   const plain = user && typeof user.toJSON === 'function' ? user.toJSON() : user;
   if (!plain || typeof plain !== 'object') return plain;
@@ -406,14 +425,19 @@ export const getPhotoWall = async (req: AuthRequest, res: Response) => {
       attributes: ['id', 'media', 'images', 'created_at'] as any
     });
 
-    const items: Array<{ url: string; source: 'photo' | 'moment'; created_at: any }> = [];
+    const items: Array<{ url: string; thumb_url: string; source: 'photo' | 'moment'; created_at: any }> = [];
     const seen = new Set<string>();
 
     const pushUrl = (url: string, source: 'photo' | 'moment', created_at: any) => {
       const key = String(url || '').trim();
       if (!key || seen.has(key)) return;
       seen.add(key);
-      items.push({ url: key, source, created_at });
+      items.push({
+        url: key,
+        thumb_url: buildOssThumbUrl(key, source === 'photo' ? 720 : 540),
+        source,
+        created_at
+      });
     };
 
     photos.forEach((p: any) => pushUrl(p.url, 'photo', p.created_at));

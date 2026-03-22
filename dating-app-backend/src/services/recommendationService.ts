@@ -53,7 +53,11 @@ interface RecommendationResult {
     birth_date: Date;
     age: number | null;
     avatar: string;
+    avatar_thumb: string;
+    primary_photo: string;
+    primary_photo_thumb: string;
     photos: string[];
+    photo_count: number;
     hometown: string;
     school: string;
     company: string;
@@ -110,6 +114,25 @@ const uniqueStrings = (items: Array<unknown>, limit = 0): string[] => {
   });
 
   return limit > 0 ? output.slice(0, limit) : output;
+};
+
+const buildOssThumbUrl = (url: unknown, width: number, quality = 62): string => {
+  const source = safeText(url);
+  if (!source || !/^https?:\/\//i.test(source)) return source;
+  if (source.includes('x-oss-process=')) return source;
+
+  let hostname = '';
+  try {
+    hostname = new URL(source).hostname.toLowerCase();
+  } catch (_) {
+    return source;
+  }
+
+  const isOssDomain = hostname.endsWith('aliyuncs.com') && hostname.includes('.oss-');
+  if (!isOssDomain) return source;
+
+  const separator = source.includes('?') ? '&' : '?';
+  return `${source}${separator}x-oss-process=image/resize,m_fill,w_${Math.max(240, width)}/quality,Q_${Math.max(40, Math.min(quality, 90))}/format,webp`;
 };
 
 const normalizeTextArray = (value: unknown, limit = 0): string[] => {
@@ -359,7 +382,10 @@ export class RecommendationService {
         avatarUrl: safeText(user.avatar_url),
         photoUrls: photoMap.get(String(user.id)) || [],
       });
-      const avatar = photoWall[0] || '';
+      const primaryPhoto = photoWall[0] || '';
+      const avatar = primaryPhoto;
+      const avatarThumb = buildOssThumbUrl(avatar, 320, 58);
+      const primaryPhotoThumb = buildOssThumbUrl(primaryPhoto, 720, 62);
       const height = formatHeight(user.height);
       const education = safeText(user.education);
       const job = safeText(user.job);
@@ -379,7 +405,11 @@ export class RecommendationService {
           birth_date: user.birth_date,
           age: calculateAge(user.birth_date),
           avatar,
-          photos: photoWall,
+          avatar_thumb: avatarThumb,
+          primary_photo: primaryPhoto,
+          primary_photo_thumb: primaryPhotoThumb,
+          photos: primaryPhoto ? [primaryPhoto] : [],
+          photo_count: photoWall.length,
           hometown,
           school,
           company: safeText(user.company),

@@ -2,6 +2,7 @@ import { Op } from 'sequelize';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Like, User, Photo, BaziInfo } from '../models';
+import axios from 'axios';
 import {
   ensureMatchForUsers,
   findMatchByUsers,
@@ -14,6 +15,8 @@ import { hasDiscoverVipAccess, hasSuperLikeAccess } from '../services/vipService
 import { recordConversationMessage } from '../services/conversationService';
 
 const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
+
+const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 
 const cleanPillar = (value: unknown) => String(value || '').trim().replace(/\s+/g, '').slice(0, 2);
 
@@ -44,8 +47,43 @@ const buildUserCard = (user: any) => {
     day_pillar: dayPillar,
     element: String(baziInfo?.element || '').trim(),
     day_pillar_label: dayPillarLabel,
-    element_label: dayPillarLabel
+    element_label: dayPillarLabel,
+    bazi_review_status: String(user?.bazi_review_status || '').trim()
   };
+};
+
+const getBaziReviewStatusForUser = async (userId: string) => {
+  try {
+    const response = await axios.get(`${ADMIN_BACKEND_URL}/api/internal/verification/user/${userId}/status`, {
+      timeout: 10000
+    });
+    const review = response.data?.data?.bazi_review || null;
+    return {
+      status: String(review?.status || '').trim()
+    };
+  } catch (error: any) {
+    console.warn('[Like] getBaziReviewStatusForUser failed:', {
+      userId,
+      error: error?.message || error
+    });
+    return {
+      status: 'unknown'
+    };
+  }
+};
+
+const getBaziReviewStatusMap = async (users: any[]) => {
+  const userIds = Array.from(new Set(
+    (users || [])
+      .map((user) => String(user?.id || '').trim())
+      .filter(Boolean)
+  ));
+
+  const entries = await Promise.all(
+    userIds.map(async (userId) => [userId, await getBaziReviewStatusForUser(userId)] as const)
+  );
+
+  return new Map(entries);
 };
 
 const attachMatchToItems = async (params: {
@@ -310,12 +348,17 @@ export const getMatches = async (req: AuthRequest, res: Response) => {
       order: [['created_at', 'DESC']]
     });
 
+    const reviewStatusMap = await getBaziReviewStatusMap(mutualLikes.map((like: any) => like.user));
+
     const data = await attachMatchToItems({
       viewerId: userId,
       items: mutualLikes,
       getOtherUser: (like: any) => like.user,
       mapBase: (like: any, matchPayload: any) => ({
-        user: buildUserCard(like.user),
+        user: buildUserCard({
+          ...(like.user && typeof like.user.toJSON === 'function' ? like.user.toJSON() : like.user),
+          bazi_review_status: reviewStatusMap.get(String(like.user?.id || ''))?.status || ''
+        }),
         matched_at: like.created_at,
         match: matchPayload
       })

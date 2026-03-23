@@ -255,7 +255,8 @@ function buildTaskBazi(task) {
     yearP: reviewed.year_pillar || task.bazi_year_pillar || '',
     monthP: reviewed.month_pillar || task.bazi_month_pillar || '',
     dayP: reviewed.day_pillar || task.bazi_day_pillar || '',
-    hourP: reviewed.hour_pillar || task.bazi_hour_pillar || ''
+    hourP: reviewed.hour_pillar || task.bazi_hour_pillar || '',
+    currentLuckPillar: String(reviewed.current_luck_pillar || task.current_luck_pillar || '').trim()
   };
 }
 
@@ -293,6 +294,7 @@ exports.getPersonalAnalysis = async (req, res) => {
       },
       user_id
     );
+
     const { payload, rawText } = extractPersonalPayload(apiResult);
 
     db.prepare('INSERT INTO murron_cache (user_id, request_type, bazi_input, response_text) VALUES (?, ?, ?, ?)')
@@ -330,6 +332,10 @@ exports.getCompatibilityAnalysis = async (req, res) => {
       myBaziData.dayP,
       myBaziData.hourP
     );
+    const _unusedCompatibilityGuard = () => {
+
+      return res.status(400).json({ success: false, message: '当前大运信息未填写，暂无法生成灵魂合盘' });
+    }
 
     let targetBazi = '';
     let targetProfile = null;

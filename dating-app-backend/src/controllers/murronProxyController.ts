@@ -5,6 +5,7 @@ import { Entitlement } from '../models';
 import { calculateBaziWithBirthData } from '../services/baziService';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
+const COMPATIBILITY_TIMEOUT_MS = Number(process.env.MURRON_COMPATIBILITY_TIMEOUT_MS || 300000);
 
 type ManualTargetInput = {
   name?: string;
@@ -188,7 +189,7 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
     const response = await axios.post(
       `${ADMIN_BACKEND_URL}/api/internal/murron/compatibility`,
       requestPayload,
-      { timeout: 130000 }
+      { timeout: COMPATIBILITY_TIMEOUT_MS }
     );
 
     const data = response.data?.data || {};

@@ -103,6 +103,7 @@ const ensureUserColumns = async () => {
   await sql('ALTER TABLE users ADD COLUMN moments TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wishes TEXT;');
   await sql('ALTER TABLE users ADD COLUMN nickname TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN birth_place TEXT;');
   await sql('ALTER TABLE users ADD COLUMN phone TEXT;');
   await sql('ALTER TABLE users ADD COLUMN phone_verified_at DATETIME;');
   await sql('ALTER TABLE users ADD COLUMN profile_completed BOOLEAN DEFAULT 0;');
@@ -111,6 +112,7 @@ const ensureUserColumns = async () => {
   await sql('ALTER TABLE users ADD COLUMN wechat_openid TEXT;');
   await sql('ALTER TABLE users ADD COLUMN wechat_unionid TEXT;');
   await sql('ALTER TABLE users ADD COLUMN im_user_id TEXT;');
+  await sql("UPDATE users SET birth_place = hometown WHERE (birth_place IS NULL OR TRIM(birth_place) = '') AND hometown IS NOT NULL AND TRIM(hometown) <> '';");
 };
 
 const ensurePostColumns = async () => {

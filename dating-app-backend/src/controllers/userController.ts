@@ -475,7 +475,7 @@ export const getPhotoWall = async (req: AuthRequest, res: Response) => {
 // 允许用户更新的字段白名单
 const ALLOWED_PROFILE_FIELDS = [
   'mbti', 'interests', 'love_view', 'job', 'height', 'education',
-  'constellation', 'intro', 'username', 'school', 'company', 'hometown',
+  'constellation', 'intro', 'username', 'school', 'company', 'birth_place', 'hometown',
   'gender', 'birth_date', 'moments', 'wishes', 'nickname', 'profile_extras'
 ] as const;
 

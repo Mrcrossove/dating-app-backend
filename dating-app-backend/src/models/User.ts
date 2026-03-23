@@ -32,6 +32,7 @@ class User extends Model {
   // New Fields from Screenshot
   public school!: string;
   public company!: string;
+  public birth_place!: string;
   public hometown!: string;
   public moments!: string;
   public wishes!: string;
@@ -130,6 +131,7 @@ User.init(
     // New Fields
     school: { type: DataTypes.STRING, allowNull: true },
     company: { type: DataTypes.STRING, allowNull: true },
+    birth_place: { type: DataTypes.STRING, allowNull: true },
     hometown: { type: DataTypes.STRING, allowNull: true },
     moments: { type: DataTypes.TEXT, allowNull: true },
     wishes: { type: DataTypes.TEXT, allowNull: true },

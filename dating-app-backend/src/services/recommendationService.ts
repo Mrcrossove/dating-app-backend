@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import { cache } from '../config/redis';
 import sequelize from '../config/database';
-import { BaziInfo, Photo, User } from '../models';
+import { AuthRecord, BaziInfo, Photo, User } from '../models';
 import { calculateCompatibility } from './baziService';
 import { getSuperLikeBoostUserIds } from './vipService';
 
@@ -76,6 +76,11 @@ interface RecommendationResult {
     lifestyleList: DiscoverLifestyleItem[];
     wishList: DiscoverWishItem[];
     is_verified: boolean;
+    auth_detail: {
+      real_name: string;
+      company: string;
+      education: string;
+    };
   };
   compatibility_score: number;
   exposure_boost?: number;
@@ -365,6 +370,16 @@ export class RecommendationService {
           })
         : Promise.resolve([])
     );
+    const authRecords = await (
+      paginatedUserIds.length
+        ? AuthRecord.findAll({
+            where: {
+              user_id: { [Op.in]: paginatedUserIds },
+              type: { [Op.in]: ['real_name', 'company', 'education'] },
+            },
+          })
+        : Promise.resolve([])
+    );
 
     const photoMap = new Map<string, string[]>();
     (photos as any[]).forEach((photo) => {
@@ -373,6 +388,17 @@ export class RecommendationService {
       if (current.length >= MAX_CARD_PHOTOS) return;
       current.push(safeText(photo.url));
       photoMap.set(ownerId, current);
+    });
+    const authMap = new Map<string, { real_name: string; company: string; education: string }>();
+    (authRecords as any[]).forEach((record) => {
+      const ownerId = String(record.user_id);
+      const current = authMap.get(ownerId) || { real_name: 'none', company: 'none', education: 'none' };
+      const type = safeText(record.type);
+      const status = safeText(record.status) || 'none';
+      if (type === 'real_name' || type === 'company' || type === 'education') {
+        (current as any)[type] = status;
+      }
+      authMap.set(ownerId, current);
     });
 
     const data = paginated.map(({ user, score, exposureBoost }) => {
@@ -395,6 +421,11 @@ export class RecommendationService {
       const mbti = safeText(user.mbti);
       const purpose = extras.purpose;
       const expectation = extras.expectation;
+      const authDetail = authMap.get(String(user.id)) || {
+        real_name: user.is_verified ? 'approved' : 'none',
+        company: 'none',
+        education: 'none',
+      };
 
       return {
         user: {
@@ -438,6 +469,7 @@ export class RecommendationService {
           lifestyleList: extras.lifestyleList,
           wishList: extras.wishList,
           is_verified: Boolean(user.is_verified),
+          auth_detail: authDetail,
         },
         compatibility_score: Math.round(score),
         exposure_boost: exposureBoost || 0,

@@ -25,9 +25,12 @@ export const getRecommendations = async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error: any) {
-    const statusCode = error.message.includes('bazi calculation') ? 400 : 500;
+    const statusCode = error?.code === 'PHOTO_REQUIRED_FOR_DISCOVER'
+      ? 403
+      : (error.message.includes('bazi calculation') ? 400 : 500);
     return res.status(statusCode).json({
       success: false,
+      code: error?.code || '',
       message: error.message,
     });
   }

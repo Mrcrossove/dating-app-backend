@@ -177,6 +177,8 @@ export const uploadPhoto = async (req: AuthRequest, res: Response) => {
           await User.update({ avatar_url: url }, { where: { id: userId } });
         }
 
+        await recommendationService.clearDiscoverCache();
+
         return res.status(200).json({ success: true, data: photo });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
@@ -214,6 +216,7 @@ export const replacePhotos = async (req: AuthRequest, res: Response) => {
     );
 
     await User.update({ avatar_url: cleaned[0] || '' }, { where: { id: userId } });
+    await recommendationService.clearDiscoverCache();
 
     return res.status(200).json({ success: true, data: created });
   } catch (error: any) {

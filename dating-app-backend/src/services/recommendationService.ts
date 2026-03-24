@@ -11,6 +11,7 @@ const DEFAULT_PAGE_SIZE = 20;
 const SAMPLE_SIZE = 60;
 const MAX_CARD_PHOTOS = 6;
 const SUPER_LIKE_EXPOSURE_BOOST = 10;
+const PHOTO_REQUIRED_FOR_DISCOVER = 'PHOTO_REQUIRED_FOR_DISCOVER';
 
 interface RecommendationParams {
   userId: string;
@@ -293,6 +294,16 @@ export class RecommendationService {
       throw new Error('User not found');
     }
 
+    const currentUserPhotoCount = await Photo.count({
+      where: { user_id: userId }
+    });
+
+    if (currentUserPhotoCount < 1) {
+      const error: any = new Error('At least one photo is required to access recommendations');
+      error.code = PHOTO_REQUIRED_FOR_DISCOVER;
+      throw error;
+    }
+
     const targetGender = currentUser.gender === 'male' ? 'female' : 'male';
     const allExcludedIds = [...excludeIds, userId];
 
@@ -328,10 +339,25 @@ export class RecommendationService {
       limit: SAMPLE_SIZE,
     })) as CandidateUser[];
 
-    const superLikeBoostUserIds = await getSuperLikeBoostUserIds(candidates.map((user) => String(user.id)));
+    const candidateIds = candidates.map((user) => String(user.id));
+    const candidatePhotos = await (
+      candidateIds.length
+        ? Photo.findAll({
+            attributes: ['user_id'] as any,
+            where: { user_id: { [Op.in]: candidateIds } },
+            group: ['user_id']
+          })
+        : Promise.resolve([])
+    );
+    const candidateIdsWithPhoto = new Set(
+      (candidatePhotos as any[]).map((photo) => String(photo.user_id || photo.getDataValue?.('user_id') || ''))
+    );
+    const candidatesWithPhoto = candidates.filter((user) => candidateIdsWithPhoto.has(String(user.id)));
+
+    const superLikeBoostUserIds = await getSuperLikeBoostUserIds(candidatesWithPhoto.map((user) => String(user.id)));
 
     const scored = await Promise.all(
-      candidates.map(async (user) => ({
+      candidatesWithPhoto.map(async (user) => ({
         user,
         baseScore:
           currentUser.bazi_info && user.bazi_info

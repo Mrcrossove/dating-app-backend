@@ -138,6 +138,17 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Cannot like yourself' });
     }
 
+    const currentUserPhotoCount = await Photo.count({
+      where: { user_id: userId }
+    });
+    if (currentUserPhotoCount < 1) {
+      return res.status(403).json({
+        success: false,
+        code: 'PHOTO_REQUIRED_FOR_LIKE',
+        message: 'At least one photo is required before liking other users'
+      });
+    }
+
     const existingLike = await Like.findOne({
       where: { user_id: userId, target_id: targetId }
     });

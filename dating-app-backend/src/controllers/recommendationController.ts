@@ -7,11 +7,22 @@ export const getRecommendations = async (req: AuthRequest, res: Response) => {
     const userId = req.user.id;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
+    const rawFilters = typeof req.query.filters === 'string' ? req.query.filters : '';
+    let filters = {};
+
+    if (rawFilters) {
+      try {
+        filters = JSON.parse(rawFilters);
+      } catch (_) {
+        filters = {};
+      }
+    }
 
     const result = await recommendationService.getRecommendations({
       userId,
       page,
       limit,
+      filters,
     });
 
     return res.status(200).json({

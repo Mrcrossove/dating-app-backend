@@ -1,14 +1,10 @@
-import { Op } from 'sequelize';
-import { cache } from '../config/redis';
+import { Op, WhereOptions } from 'sequelize';
 import sequelize from '../config/database';
-import { AuthRecord, BaziInfo, Photo, User } from '../models';
-import { calculateCompatibility } from './baziService';
+import { AuthRecord, BaziInfo, Block, Like, Match, Photo, RecommendationHistory, Report, User } from '../models';
 import { getSuperLikeBoostUserIds } from './vipService';
 
-const CACHE_TTL = 300;
-const MIN_COMPATIBILITY_SCORE = 70;
 const DEFAULT_PAGE_SIZE = 20;
-const SAMPLE_SIZE = 60;
+const SAMPLE_SIZE = 240;
 const MAX_CARD_PHOTOS = 6;
 const SUPER_LIKE_EXPOSURE_BOOST = 10;
 const PHOTO_REQUIRED_FOR_DISCOVER = 'PHOTO_REQUIRED_FOR_DISCOVER';
@@ -18,6 +14,7 @@ interface RecommendationParams {
   page?: number;
   limit?: number;
   excludeIds?: string[];
+  filters?: Record<string, unknown>;
 }
 
 interface DiscoverQaItem {
@@ -82,13 +79,30 @@ interface RecommendationResult {
       company: string;
       education: string;
     };
+    day_master_label: string;
+    favorable_elements: string[];
+    recommend_reason: string;
+    recommendation_type: string;
   };
-  compatibility_score: number;
   exposure_boost?: number;
   boosted?: boolean;
 }
 
 type CandidateUser = User & { bazi_info?: BaziInfo };
+
+type RecommendationFilters = {
+  gender?: string;
+  ageMin?: number;
+  ageMax?: number;
+  location?: string[];
+  heightMin?: number;
+  heightMax?: number;
+  educations?: string[];
+  occupations?: string[];
+  constellations?: string[];
+  schools?: string[];
+  onlyVerified?: boolean;
+};
 
 const safeText = (value: unknown, maxLength = 0): string => {
   const text = String(value || '').trim();
@@ -254,17 +268,132 @@ const buildDiscoverTags = (params: {
   );
 };
 
-const calculateFallbackScore = (user: CandidateUser): number => {
-  let score = 72;
+const normalizeFilters = (raw: Record<string, unknown> = {}): RecommendationFilters => {
+  const toNumber = (value: unknown, fallback: number) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+  };
+  const toTextArray = (value: unknown) => {
+    if (!Array.isArray(value)) return [];
+    return uniqueStrings(value);
+  };
 
-  if (user.is_verified) score += 8;
-  if (safeText(user.nickname)) score += 3;
-  if (safeText(user.intro)) score += 3;
-  if (safeText(user.education)) score += 2;
-  if (safeText(user.job)) score += 2;
-  if (safeText(user.profile_extras)) score += 3;
+  return {
+    gender: safeText(raw.gender) || 'all',
+    ageMin: Math.max(18, toNumber(raw.ageMin, 18)),
+    ageMax: Math.min(60, toNumber(raw.ageMax, 60)),
+    location: toTextArray(raw.location),
+    heightMin: Math.max(0, toNumber(raw.heightMin, 0)),
+    heightMax: Math.min(250, toNumber(raw.heightMax, 250)),
+    educations: toTextArray(raw.educations),
+    occupations: toTextArray(raw.occupations),
+    constellations: toTextArray(raw.constellations),
+    schools: toTextArray(raw.schools),
+    onlyVerified: Boolean(raw.onlyVerified),
+  };
+};
 
-  return Math.min(95, score);
+const getDayMasterLabel = (baziInfo?: BaziInfo | null): string => {
+  const dayPillar = safeText(baziInfo?.day_pillar);
+  const element = safeText(baziInfo?.element);
+  const dayStem = dayPillar.charAt(0);
+  return safeText(`${dayStem}${element}`);
+};
+
+const getFavorableElements = (baziInfo?: BaziInfo | null): string[] => {
+  const report = safeText(baziInfo?.report);
+  if (!report) return [];
+
+  const match = report.match(/喜用[:：]\s*([^\n]+)/);
+  if (!match || !match[1]) return [];
+  return uniqueStrings((match[1].match(/[金木水火土]/g) || []), 5);
+};
+
+const buildRecommendationReason = (params: {
+  currentFavorableElements: string[];
+  candidateElement: string;
+  candidateDayMaster: string;
+}) => {
+  const { currentFavorableElements, candidateElement, candidateDayMaster } = params;
+
+  if (candidateElement && currentFavorableElements.includes(candidateElement)) {
+    return {
+      recommendationType: '喜用互补',
+      recommendReason: `对方日主${candidateDayMaster || candidateElement}，五行偏${candidateElement}，属于你的喜用方向`
+    };
+  }
+
+  if (candidateElement) {
+    return {
+      recommendationType: '命理参考',
+      recommendReason: `对方日主${candidateDayMaster || candidateElement}，可作为你的命理择偶参考对象`
+    };
+  }
+
+  return {
+    recommendationType: '基础推荐',
+    recommendReason: '资料完整且符合你的当前筛选条件'
+  };
+};
+
+const calculatePriorityScore = (params: {
+  candidate: CandidateUser;
+  favorableMatch: boolean;
+  exposureBoost: number;
+}) => {
+  const { candidate, favorableMatch, exposureBoost } = params;
+  let score = 0;
+
+  if (favorableMatch) score += 1000;
+  if (candidate.is_verified) score += 120;
+  if (safeText(candidate.nickname)) score += 30;
+  if (safeText(candidate.intro)) score += 20;
+  if (safeText(candidate.education)) score += 10;
+  if (safeText(candidate.job)) score += 10;
+  if (safeText(candidate.profile_extras)) score += 10;
+
+  return score + exposureBoost;
+};
+
+const matchesBackendFilters = (user: CandidateUser, filters: RecommendationFilters) => {
+  const age = calculateAge(user.birth_date) || 0;
+  const height = Number(user.height) || 0;
+  const hometown = safeText(user.hometown);
+  const school = safeText(user.school);
+  const company = safeText(user.company);
+  const locationText = `${hometown} ${school} ${company}`.trim();
+  const ageMin = Math.min(Number(filters.ageMin) || 18, Number(filters.ageMax) || 60);
+  const ageMax = Math.max(Number(filters.ageMin) || 18, Number(filters.ageMax) || 60);
+  const heightMin = Math.min(Number(filters.heightMin) || 0, Number(filters.heightMax) || 250);
+  const heightMax = Math.max(Number(filters.heightMin) || 0, Number(filters.heightMax) || 250);
+
+  if (filters.onlyVerified && !user.is_verified) return false;
+  if (age && (age < ageMin || age > ageMax)) return false;
+  if (height && (height < heightMin || height > heightMax)) return false;
+
+  if (filters.location && filters.location.length > 0) {
+    const regionText = filters.location.join(' ');
+    if (!locationText.includes(regionText)) return false;
+  }
+
+  if (filters.educations && filters.educations.length > 0 && !filters.educations.includes(safeText(user.education))) {
+    return false;
+  }
+
+  if (filters.occupations && filters.occupations.length > 0 && !filters.occupations.includes(safeText(user.job))) {
+    return false;
+  }
+
+  if (filters.constellations && filters.constellations.length > 0 && !filters.constellations.includes(safeText(user.constellation))) {
+    return false;
+  }
+
+  if (filters.schools && filters.schools.length > 0) {
+    const normalizedSchool = safeText(user.school);
+    if (!filters.schools.some((schoolLabel) => normalizedSchool.includes(schoolLabel))) return false;
+  }
+
+  return true;
 };
 
 export class RecommendationService {
@@ -273,18 +402,10 @@ export class RecommendationService {
     total: number;
     hasMore: boolean;
   }> {
-    const { userId, page = 1, limit = DEFAULT_PAGE_SIZE, excludeIds = [] } = params;
-    const safePage = Math.max(1, page);
+    const { userId, page = 1, limit = DEFAULT_PAGE_SIZE, excludeIds = [], filters: rawFilters = {} } = params;
+    const safePage = 1;
     const safeLimit = Math.max(1, Math.min(limit, 30));
-    const cacheKey = `discover:${userId}:page${safePage}:limit${safeLimit}`;
-
-    const cached = await cache.get<{ data: RecommendationResult[]; total: number }>(cacheKey);
-    if (cached) {
-      return {
-        ...cached,
-        hasMore: safePage * safeLimit < cached.total,
-      };
-    }
+    const filters = normalizeFilters(rawFilters);
 
     const currentUser = await User.findByPk(userId, {
       include: [{ model: BaziInfo, as: 'bazi_info' }],
@@ -305,7 +426,55 @@ export class RecommendationService {
     }
 
     const targetGender = currentUser.gender === 'male' ? 'female' : 'male';
-    const allExcludedIds = [...excludeIds, userId];
+    if (filters.gender && filters.gender !== 'all' && filters.gender !== targetGender) {
+      return {
+        data: [],
+        total: 0,
+        hasMore: false,
+      };
+    }
+    const allExcludedIds = new Set<string>([...excludeIds, userId].map((id) => String(id)));
+    const currentFavorableElements = getFavorableElements(currentUser.bazi_info || null);
+
+    const [shownHistory, myLikes, blocks, reports, myMatches] = await Promise.all([
+      RecommendationHistory.findAll({
+        where: { viewer_id: userId },
+        attributes: ['candidate_id'] as any
+      }),
+      Like.findAll({
+        where: { user_id: userId },
+        attributes: ['target_id'] as any
+      }),
+      Block.findAll({
+        where: { user_id: userId },
+        attributes: ['target_id'] as any
+      }),
+      Report.findAll({
+        where: { user_id: userId },
+        attributes: ['target_id'] as any
+      }),
+      Match.findAll({
+        where: {
+          status: { [Op.ne]: 'blocked' },
+          [Op.or]: [
+            { user1_id: userId },
+            { user2_id: userId }
+          ]
+        },
+        attributes: ['user1_id', 'user2_id'] as any
+      })
+    ]);
+
+    shownHistory.forEach((row: any) => allExcludedIds.add(String(row.candidate_id || '')));
+    myLikes.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
+    blocks.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
+    reports.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
+    myMatches.forEach((row: any) => {
+      const user1Id = String(row.user1_id || '');
+      const user2Id = String(row.user2_id || '');
+      if (user1Id && user1Id !== String(userId)) allExcludedIds.add(user1Id);
+      if (user2Id && user2Id !== String(userId)) allExcludedIds.add(user2Id);
+    });
 
     const candidates = (await User.findAll({
       attributes: [
@@ -328,14 +497,18 @@ export class RecommendationService {
         'interests',
         'profile_extras',
         'is_verified',
+        'created_at',
       ] as any,
       where: {
         gender: targetGender,
-        id: { [Op.notIn]: allExcludedIds },
+        id: { [Op.notIn]: Array.from(allExcludedIds) },
         is_active: true,
-      },
+      } as WhereOptions,
       include: [{ model: BaziInfo, as: 'bazi_info', required: false }],
-      order: sequelize.random(),
+      order: [
+        ['is_verified', 'DESC'],
+        ['created_at', 'DESC']
+      ],
       limit: SAMPLE_SIZE,
     })) as CandidateUser[];
 
@@ -354,33 +527,40 @@ export class RecommendationService {
     );
     const candidatesWithPhoto = candidates.filter((user) => candidateIdsWithPhoto.has(String(user.id)));
 
-    const superLikeBoostUserIds = await getSuperLikeBoostUserIds(candidatesWithPhoto.map((user) => String(user.id)));
+    const filteredCandidates = candidatesWithPhoto.filter((user) => matchesBackendFilters(user, filters));
+    const superLikeBoostUserIds = await getSuperLikeBoostUserIds(filteredCandidates.map((user) => String(user.id)));
 
-    const scored = await Promise.all(
-      candidatesWithPhoto.map(async (user) => ({
-        user,
-        baseScore:
-          currentUser.bazi_info && user.bazi_info
-            ? calculateCompatibility(currentUser.bazi_info, user.bazi_info)
-            : calculateFallbackScore(user),
-        exposureBoost: superLikeBoostUserIds.has(String(user.id)) ? SUPER_LIKE_EXPOSURE_BOOST : 0,
-      }))
-    );
+    const matched = filteredCandidates
+      .map((user) => {
+        const candidateElement = safeText(user.bazi_info?.element);
+        const candidateDayMaster = getDayMasterLabel(user.bazi_info || null);
+        const exposureBoost = superLikeBoostUserIds.has(String(user.id)) ? SUPER_LIKE_EXPOSURE_BOOST : 0;
+        const favorableMatch = !!(candidateElement && currentFavorableElements.includes(candidateElement));
 
-    const matched = scored
-      .map((item) => ({
-        ...item,
-        score: Math.min(100, item.baseScore + item.exposureBoost),
-      }))
-      .filter(({ score }) => score >= MIN_COMPATIBILITY_SCORE)
+        return {
+          user,
+          favorableMatch,
+          exposureBoost,
+          priorityScore: calculatePriorityScore({
+            candidate: user,
+            favorableMatch,
+            exposureBoost
+          }),
+          ...buildRecommendationReason({
+            currentFavorableElements,
+            candidateElement,
+            candidateDayMaster
+          })
+        };
+      })
       .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
+        if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
         if (b.exposureBoost !== a.exposureBoost) return b.exposureBoost - a.exposureBoost;
-        return b.baseScore - a.baseScore;
+        return new Date(String(b.user.created_at || 0)).getTime() - new Date(String(a.user.created_at || 0)).getTime();
       });
 
     const total = matched.length;
-    const startIndex = (safePage - 1) * safeLimit;
+    const startIndex = 0;
     const paginated = matched.slice(startIndex, startIndex + safeLimit);
     const paginatedUserIds = paginated.map(({ user }) => String(user.id));
 
@@ -427,7 +607,7 @@ export class RecommendationService {
       authMap.set(ownerId, current);
     });
 
-    const data = paginated.map(({ user, score, exposureBoost }) => {
+    const data = paginated.map(({ user, exposureBoost, recommendReason, recommendationType }) => {
       const extras = parseProfileExtras(user.profile_extras);
       const interests = normalizeTextArray(user.interests, 4);
       const photoWall = buildPhotoWall({
@@ -447,6 +627,8 @@ export class RecommendationService {
       const mbti = safeText(user.mbti);
       const purpose = extras.purpose;
       const expectation = extras.expectation;
+      const dayMasterLabel = getDayMasterLabel(user.bazi_info || null);
+      const favorableElements = getFavorableElements(user.bazi_info || null);
       const authDetail = authMap.get(String(user.id)) || {
         real_name: user.is_verified ? 'approved' : 'none',
         company: 'none',
@@ -496,30 +678,53 @@ export class RecommendationService {
           wishList: extras.wishList,
           is_verified: Boolean(user.is_verified),
           auth_detail: authDetail,
+          day_master_label: dayMasterLabel,
+          favorable_elements: favorableElements,
+          recommend_reason: recommendReason,
+          recommendation_type: recommendationType,
         },
-        compatibility_score: Math.round(score),
         exposure_boost: exposureBoost || 0,
         boosted: exposureBoost > 0,
       };
     });
 
-    const result = { data, total };
-    await cache.set(cacheKey, result, CACHE_TTL);
+    await Promise.all(
+      paginatedUserIds.map(async (candidateId) => {
+        const [row, created] = await RecommendationHistory.findOrCreate({
+          where: { viewer_id: userId, candidate_id: candidateId },
+          defaults: {
+            viewer_id: userId,
+            candidate_id: candidateId,
+            shown_count: 1,
+            last_action: 'shown',
+            first_shown_at: new Date(),
+            last_shown_at: new Date()
+          } as any
+        });
+
+        if (!created) {
+          await row.update({
+            shown_count: Number((row as any).shown_count || 0) + 1,
+            last_action: 'shown',
+            last_shown_at: new Date()
+          } as any);
+        }
+      })
+    );
 
     return {
-      ...result,
-      hasMore: startIndex + data.length < total,
+      data,
+      total,
+      hasMore: data.length >= safeLimit && total > data.length,
     };
   }
 
   async clearCache(userId: string): Promise<void> {
-    await cache.deletePattern(`discover:${userId}:*`);
-    await cache.deletePattern(`recommendations:${userId}:*`);
+    return;
   }
 
   async clearDiscoverCache(): Promise<void> {
-    await cache.deletePattern('discover:*');
-    await cache.deletePattern('recommendations:*');
+    return;
   }
 }
 

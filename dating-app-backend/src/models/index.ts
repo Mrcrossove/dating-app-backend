@@ -17,6 +17,7 @@ import Block from './Block';
 import Report from './Report';
 import RefreshToken from './RefreshToken';
 import LoginEvent from './LoginEvent';
+import RecommendationHistory from './RecommendationHistory';
 
 // User Associations
 User.hasMany(Photo, { foreignKey: 'user_id', as: 'photos' });
@@ -85,6 +86,10 @@ RefreshToken.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(LoginEvent, { foreignKey: 'user_id', as: 'login_events' });
 LoginEvent.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
+User.hasMany(RecommendationHistory, { foreignKey: 'viewer_id', as: 'recommendation_history' });
+RecommendationHistory.belongsTo(User, { foreignKey: 'viewer_id', as: 'viewer' });
+RecommendationHistory.belongsTo(User, { foreignKey: 'candidate_id', as: 'candidate' });
+
 export {
   User,
   Photo,
@@ -104,5 +109,6 @@ export {
   Block,
   Report,
   RefreshToken,
-  LoginEvent
+  LoginEvent,
+  RecommendationHistory
 };

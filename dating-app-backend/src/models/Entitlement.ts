@@ -2,7 +2,7 @@ import { DataTypes, Model } from 'sequelize';
 import sequelize from '../config/database';
 import User from './User';
 
-export type EntitlementProductKey = 'partner_profile' | 'compatibility' | 'fortune_2026' | 'super_like';
+export type EntitlementProductKey = 'partner_profile' | 'compatibility' | 'fortune_2026' | 'dayun_report' | 'super_like';
 
 class Entitlement extends Model {
   public id!: string;
@@ -27,7 +27,7 @@ Entitlement.init(
       },
     },
     product_key: {
-      type: DataTypes.ENUM('partner_profile', 'compatibility', 'fortune_2026', 'super_like'),
+      type: DataTypes.ENUM('partner_profile', 'compatibility', 'fortune_2026', 'dayun_report', 'super_like'),
       allowNull: false,
     },
   },

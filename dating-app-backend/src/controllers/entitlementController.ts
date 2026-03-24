@@ -3,7 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
 import { recommendationService } from '../services/recommendationService';
 
-const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'super_like'] as const;
+const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'dayun_report', 'super_like'] as const;
 type ProductKey = (typeof PRODUCT_KEYS)[number];
 
 const isProductKey = (value: any): value is ProductKey =>
@@ -22,6 +22,7 @@ export const getEntitlements = async (req: AuthRequest, res: Response) => {
       partner_profile: false,
       compatibility: false,
       fortune_2026: false,
+      dayun_report: false,
       super_like: false
     };
     rows.forEach((r: any) => {

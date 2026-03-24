@@ -28,7 +28,8 @@ const getUnlocked = async (userId: string) => {
   return {
     partner_profile: set.has('partner_profile'),
     compatibility: set.has('compatibility'),
-    fortune_2026: set.has('fortune_2026')
+    fortune_2026: set.has('fortune_2026'),
+    dayun_report: set.has('dayun_report')
   };
 };
 
@@ -217,6 +218,7 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
 export const getDayunAnalysis = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    const unlocked = await getUnlocked(userId);
 
     const response = await axios.post(
       `${ADMIN_BACKEND_URL}/api/internal/murron/dayun`,
@@ -225,15 +227,18 @@ export const getDayunAnalysis = async (req: AuthRequest, res: Response) => {
     );
 
     const data = response.data?.data || {};
+    const paywallRequired = !unlocked.dayun_report;
     return res.json({
       success: true,
       data: {
-        dayun_payload: data.dayun_payload || null,
-        fullText: data.fullText || '',
+        dayun_payload: paywallRequired ? null : (data.dayun_payload || null),
+        fullText: paywallRequired ? '' : (data.fullText || ''),
         bazi: data.bazi || '',
         current_luck_pillar: data.current_luck_pillar || '',
         gender: data.gender || '',
-        cached: !!data.cached
+        cached: !!data.cached,
+        unlocked,
+        paywall_required: paywallRequired
       }
     });
   } catch (error: any) {

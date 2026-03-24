@@ -1,7 +1,7 @@
 import { Op } from 'sequelize';
 import { Entitlement } from '../models';
 
-const VIP_PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026'] as const;
+const VIP_PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'dayun_report'] as const;
 const SUPER_LIKE_PRODUCT_KEY = 'super_like' as const;
 
 export const hasDiscoverVipAccess = async (userId: string): Promise<boolean> => {

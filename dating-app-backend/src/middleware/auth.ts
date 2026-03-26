@@ -28,3 +28,11 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     next();
   });
 };
+
+export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const role = String(req.user?.role || '').trim().toLowerCase();
+  if (role !== 'admin') {
+    return res.status(403).json({ success: false, code: 'FORBIDDEN', message: 'Admin access required' });
+  }
+  next();
+};

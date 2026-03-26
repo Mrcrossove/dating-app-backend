@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
+import { getReferralRewardBalance } from '../services/referralService';
 import { recommendationService } from '../services/recommendationService';
 
 const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'dayun_report', 'super_like'] as const;
@@ -12,11 +13,14 @@ const isProductKey = (value: any): value is ProductKey =>
 export const getEntitlements = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
-    const rows = await Entitlement.findAll({
-      where: { user_id: userId },
-      attributes: ['product_key', 'created_at'] as any,
-      order: [['created_at', 'DESC']]
-    });
+    const [rows, rewardBalance] = await Promise.all([
+      Entitlement.findAll({
+        where: { user_id: userId },
+        attributes: ['product_key', 'created_at'] as any,
+        order: [['created_at', 'DESC']]
+      }),
+      getReferralRewardBalance(userId)
+    ]);
 
     const unlocked: Record<ProductKey, boolean> = {
       partner_profile: false,
@@ -30,7 +34,7 @@ export const getEntitlements = async (req: AuthRequest, res: Response) => {
       if (isProductKey(key)) unlocked[key] = true;
     });
 
-    return res.json({ success: true, data: { unlocked, items: rows } });
+    return res.json({ success: true, data: { unlocked, items: rows, reward_balance: rewardBalance } });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }

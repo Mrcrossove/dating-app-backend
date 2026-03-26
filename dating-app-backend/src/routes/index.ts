@@ -15,7 +15,9 @@ import * as entitlementController from '../controllers/entitlementController';
 import * as safetyController from '../controllers/safetyController';
 import * as sessionController from '../controllers/sessionController';
 import * as imController from '../controllers/imController';
-import { authenticateToken } from '../middleware/auth';
+import * as referralController from '../controllers/referralController';
+import * as moderationController from '../controllers/moderationController';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
@@ -123,6 +125,7 @@ router.post('/entitlements/grant', authenticateToken, entitlementController.gran
 router.get('/messages', authenticateToken, userController.getConversations);
 router.get('/messages/:targetId', authenticateToken, userController.getMessages);
 router.post('/messages/:targetId', authenticateToken, userController.sendMessage);
+router.post('/messages/:targetId/read', authenticateToken, userController.markMessagesRead);
 
 // IM Routes
 router.post('/im/easemob/token', authenticateToken, imController.getEasemobToken);
@@ -132,5 +135,8 @@ router.post('/user/report', authenticateToken, safetyController.reportUser);
 router.post('/user/block/:targetId', authenticateToken, safetyController.blockUser);
 router.delete('/user/block/:targetId', authenticateToken, safetyController.unblockUser);
 router.get('/user/blocks', authenticateToken, safetyController.getBlocks);
+router.get('/referrals/summary', authenticateToken, referralController.getReferralSummary);
+router.get('/admin/moderation/reports', authenticateToken, requireAdmin, moderationController.getReports);
+router.post('/admin/moderation/reports/:id/review', authenticateToken, requireAdmin, moderationController.reviewReport);
 
 export default router;

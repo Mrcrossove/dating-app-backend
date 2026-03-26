@@ -46,6 +46,10 @@ class User extends Model {
   public wechat_unionid!: string | null;
   public avatar_url!: string;
   public im_user_id!: string | null;
+  public referral_code!: string | null;
+  public referred_by!: string | null;
+  public referral_reward_balance!: number;
+  public referral_reward_total!: number;
 
   // Association fields
   public bazi_info?: BaziInfo;
@@ -150,7 +154,11 @@ User.init(
     wechat_openid: { type: DataTypes.STRING, allowNull: true, unique: true },
     wechat_unionid: { type: DataTypes.STRING, allowNull: true, unique: true },
     avatar_url: { type: DataTypes.STRING, allowNull: true },
-    im_user_id: { type: DataTypes.STRING, allowNull: true, unique: true }
+    im_user_id: { type: DataTypes.STRING, allowNull: true, unique: true },
+    referral_code: { type: DataTypes.STRING, allowNull: true, unique: true },
+    referred_by: { type: DataTypes.UUID, allowNull: true },
+    referral_reward_balance: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    referral_reward_total: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 }
   },
   {
     sequelize,

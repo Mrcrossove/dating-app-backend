@@ -2,12 +2,15 @@ import { Op, WhereOptions } from 'sequelize';
 import sequelize from '../config/database';
 import { AuthRecord, BaziInfo, Block, Like, Match, Photo, RecommendationHistory, Report, User } from '../models';
 import { getSuperLikeBoostUserIds } from './vipService';
+import { cache } from '../config/redis';
 
 const DEFAULT_PAGE_SIZE = 20;
 const SAMPLE_SIZE = 240;
 const MAX_CARD_PHOTOS = 6;
 const SUPER_LIKE_EXPOSURE_BOOST = 10;
 const PHOTO_REQUIRED_FOR_DISCOVER = 'PHOTO_REQUIRED_FOR_DISCOVER';
+const DISCOVER_CACHE_TTL_SECONDS = Math.max(60, Number(process.env.DISCOVER_CACHE_TTL_SECONDS || 600));
+const RESHOW_COOLDOWN_HOURS = Math.max(1, Number(process.env.DISCOVER_RESHOW_COOLDOWN_HOURS || 72));
 
 interface RecommendationParams {
   userId: string;
@@ -15,6 +18,7 @@ interface RecommendationParams {
   limit?: number;
   excludeIds?: string[];
   filters?: Record<string, unknown>;
+  cursor?: string;
 }
 
 interface DiscoverQaItem {
@@ -397,15 +401,46 @@ const matchesBackendFilters = (user: CandidateUser, filters: RecommendationFilte
 };
 
 export class RecommendationService {
+  private buildCacheKey(userId: string, filters: RecommendationFilters) {
+    return `discover:${userId}:${Buffer.from(JSON.stringify(filters)).toString('base64')}`;
+  }
+
+  private encodeCursor(payload: Record<string, unknown>) {
+    return Buffer.from(JSON.stringify(payload)).toString('base64url');
+  }
+
+  private decodeCursor(cursor?: string) {
+    if (!cursor) return null;
+    try {
+      return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async markCandidateAction(viewerId: string, candidateId: string, action: string) {
+    const existing = await RecommendationHistory.findOne({
+      where: { viewer_id: viewerId, candidate_id: candidateId }
+    });
+    if (!existing) return;
+    await existing.update({
+      last_action: String(action || 'shown').trim() || 'shown',
+      last_shown_at: new Date()
+    } as any);
+  }
+
   async getRecommendations(params: RecommendationParams): Promise<{
     data: RecommendationResult[];
     total: number;
     hasMore: boolean;
+    nextCursor: string;
   }> {
-    const { userId, page = 1, limit = DEFAULT_PAGE_SIZE, excludeIds = [], filters: rawFilters = {} } = params;
-    const safePage = 1;
+    const { userId, limit = DEFAULT_PAGE_SIZE, excludeIds = [], filters: rawFilters = {}, cursor } = params;
     const safeLimit = Math.max(1, Math.min(limit, 30));
     const filters = normalizeFilters(rawFilters);
+    const cacheKey = this.buildCacheKey(userId, filters);
+    const decodedCursor = this.decodeCursor(cursor);
+    const startIndex = Math.max(0, Number(decodedCursor?.offset || 0));
 
     const currentUser = await User.findByPk(userId, {
       include: [{ model: BaziInfo, as: 'bazi_info' }],
@@ -431,15 +466,17 @@ export class RecommendationService {
         data: [],
         total: 0,
         hasMore: false,
+        nextCursor: '',
       };
     }
     const allExcludedIds = new Set<string>([...excludeIds, userId].map((id) => String(id)));
     const currentFavorableElements = getFavorableElements(currentUser.bazi_info || null);
+    const cooldownThreshold = new Date(Date.now() - RESHOW_COOLDOWN_HOURS * 60 * 60 * 1000);
 
     const [shownHistory, myLikes, blocks, reports, myMatches] = await Promise.all([
       RecommendationHistory.findAll({
         where: { viewer_id: userId },
-        attributes: ['candidate_id'] as any
+        attributes: ['candidate_id', 'last_action', 'last_shown_at'] as any
       }),
       Like.findAll({
         where: { user_id: userId },
@@ -465,7 +502,15 @@ export class RecommendationService {
       })
     ]);
 
-    shownHistory.forEach((row: any) => allExcludedIds.add(String(row.candidate_id || '')));
+    shownHistory.forEach((row: any) => {
+      const candidateId = String(row.candidate_id || '');
+      const lastAction = String(row.last_action || 'shown');
+      const lastShownAt = row.last_shown_at ? new Date(row.last_shown_at) : null;
+      const eligibleForReshow = lastAction === 'shown' && lastShownAt && lastShownAt <= cooldownThreshold;
+      if (!eligibleForReshow) {
+        allExcludedIds.add(candidateId);
+      }
+    });
     myLikes.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
     blocks.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
     reports.forEach((row: any) => allExcludedIds.add(String(row.target_id || '')));
@@ -530,8 +575,10 @@ export class RecommendationService {
     const filteredCandidates = candidatesWithPhoto.filter((user) => matchesBackendFilters(user, filters));
     const superLikeBoostUserIds = await getSuperLikeBoostUserIds(filteredCandidates.map((user) => String(user.id)));
 
-    const matched = filteredCandidates
-      .map((user) => {
+    let orderedCandidateIds = (await cache.get<string[]>(cacheKey)) || [];
+    if (!orderedCandidateIds.length || startIndex === 0) {
+      const matched = filteredCandidates
+        .map((user) => {
         const candidateElement = safeText(user.bazi_info?.element);
         const candidateDayMaster = getDayMasterLabel(user.bazi_info || null);
         const exposureBoost = superLikeBoostUserIds.has(String(user.id)) ? SUPER_LIKE_EXPOSURE_BOOST : 0;
@@ -552,17 +599,20 @@ export class RecommendationService {
             candidateDayMaster
           })
         };
-      })
-      .sort((a, b) => {
-        if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
-        if (b.exposureBoost !== a.exposureBoost) return b.exposureBoost - a.exposureBoost;
-        return new Date(String(b.user.created_at || 0)).getTime() - new Date(String(a.user.created_at || 0)).getTime();
-      });
+        })
+        .sort((a, b) => {
+          if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
+          if (b.exposureBoost !== a.exposureBoost) return b.exposureBoost - a.exposureBoost;
+          return new Date(String(b.user.created_at || 0)).getTime() - new Date(String(a.user.created_at || 0)).getTime();
+        });
 
-    const total = matched.length;
-    const startIndex = 0;
-    const paginated = matched.slice(startIndex, startIndex + safeLimit);
-    const paginatedUserIds = paginated.map(({ user }) => String(user.id));
+      orderedCandidateIds = matched.map(({ user }) => String(user.id));
+      await cache.set(cacheKey, orderedCandidateIds, DISCOVER_CACHE_TTL_SECONDS);
+    }
+
+    const total = orderedCandidateIds.length;
+    const paginatedUserIds = orderedCandidateIds.slice(startIndex, startIndex + safeLimit);
+    const paginatedCandidateMap = new Map(filteredCandidates.map((user) => [String(user.id), user]));
 
     const photos = await (
       paginatedUserIds.length
@@ -607,7 +657,16 @@ export class RecommendationService {
       authMap.set(ownerId, current);
     });
 
-    const data = paginated.map(({ user, exposureBoost, recommendReason, recommendationType }) => {
+    const data = paginatedUserIds.map((candidateId) => {
+      const user = paginatedCandidateMap.get(String(candidateId)) as CandidateUser;
+      const candidateElement = safeText(user?.bazi_info?.element);
+      const candidateDayMaster = getDayMasterLabel(user?.bazi_info || null);
+      const exposureBoost = superLikeBoostUserIds.has(String(candidateId)) ? SUPER_LIKE_EXPOSURE_BOOST : 0;
+      const { recommendReason, recommendationType } = buildRecommendationReason({
+        currentFavorableElements,
+        candidateElement,
+        candidateDayMaster
+      });
       const extras = parseProfileExtras(user.profile_extras);
       const interests = normalizeTextArray(user.interests, 4);
       const photoWall = buildPhotoWall({
@@ -712,19 +771,21 @@ export class RecommendationService {
       })
     );
 
+    const nextOffset = startIndex + data.length;
     return {
       data,
       total,
-      hasMore: data.length >= safeLimit && total > data.length,
+      hasMore: nextOffset < total,
+      nextCursor: nextOffset < total ? this.encodeCursor({ offset: nextOffset, cacheKey }) : '',
     };
   }
 
   async clearCache(userId: string): Promise<void> {
-    return;
+    await cache.deletePattern(`discover:${userId}:*`);
   }
 
   async clearDiscoverCache(): Promise<void> {
-    return;
+    await cache.deletePattern('discover:*');
   }
 }
 

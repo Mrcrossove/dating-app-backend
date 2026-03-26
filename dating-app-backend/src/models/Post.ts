@@ -11,6 +11,9 @@ class Post extends Model {
   public likes_count!: number;
   public views_count!: number;
   public comments_count!: number;
+  public moderation_status!: string;
+  public hidden_reason!: string | null;
+  public hidden_at!: Date | null;
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
 }
@@ -58,6 +61,19 @@ Post.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
+    },
+    moderation_status: {
+      type: DataTypes.ENUM('visible', 'hidden'),
+      allowNull: false,
+      defaultValue: 'visible',
+    },
+    hidden_reason: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    hidden_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
   },
   {

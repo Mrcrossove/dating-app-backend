@@ -1,18 +1,36 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Block, Report, User, Photo } from '../models';
+import { recommendationService } from '../services/recommendationService';
 
 export const reportUser = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const target_id = String(req.body?.target_id || '').trim();
+    const target_type = String(req.body?.target_type || 'user').trim().toLowerCase();
     const reason = String(req.body?.reason || '').trim();
     const detail = String(req.body?.detail || '').trim();
 
-    if (!target_id) return res.status(400).json({ success: false, message: '缺少target_id' });
-    if (!reason) return res.status(400).json({ success: false, message: '缺少reason' });
+    if (!['user', 'post', 'comment'].includes(target_type)) {
+      return res.status(400).json({ success: false, message: 'Invalid target_type' });
+    }
+    if (!target_id) return res.status(400).json({ success: false, message: 'Missing target_id' });
+    if (!reason) return res.status(400).json({ success: false, message: 'Missing reason' });
 
-    await Report.create({ user_id: userId, target_id, reason, detail: detail || null });
+    await Report.create({
+      user_id: userId,
+      target_id,
+      target_type,
+      reason,
+      detail: detail || null,
+      status: 'pending'
+    } as any);
+
+    if (target_type === 'user') {
+      await recommendationService.markCandidateAction(String(userId), target_id, 'reported');
+      await recommendationService.clearCache(String(userId));
+    }
+
     return res.status(200).json({ success: true });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
@@ -23,13 +41,15 @@ export const blockUser = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const { targetId } = req.params;
-    if (!targetId) return res.status(400).json({ success: false, message: '缺少targetId' });
-    if (String(userId) === String(targetId)) return res.status(400).json({ success: false, message: '不能拉黑自己' });
+    if (!targetId) return res.status(400).json({ success: false, message: 'Missing targetId' });
+    if (String(userId) === String(targetId)) return res.status(400).json({ success: false, message: 'Cannot block yourself' });
 
     await Block.findOrCreate({
       where: { user_id: userId, target_id: targetId },
       defaults: { user_id: userId, target_id: targetId }
     });
+    await recommendationService.markCandidateAction(String(userId), String(targetId), 'blocked');
+    await recommendationService.clearCache(String(userId));
 
     return res.status(200).json({ success: true });
   } catch (error: any) {
@@ -41,7 +61,7 @@ export const unblockUser = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const { targetId } = req.params;
-    if (!targetId) return res.status(400).json({ success: false, message: '缺少targetId' });
+    if (!targetId) return res.status(400).json({ success: false, message: 'Missing targetId' });
 
     await Block.destroy({ where: { user_id: userId, target_id: targetId } });
     return res.status(200).json({ success: true });
@@ -79,4 +99,3 @@ export const getBlocks = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-

@@ -1,8 +1,15 @@
 import { Op } from 'sequelize';
 import { Block, ConversationSummary, Message, User } from '../models';
+import { findMatchByUsers, MATCH_STAGE, normalizeMatchStage } from './matchService';
 
 type MessageType = 'text' | 'image' | 'voice' | 'system';
 type Direction = 'send' | 'receive';
+
+type ConversationAccessResult = {
+  allowed: boolean;
+  code?: 'CHAT_MATCH_REQUIRED' | 'CHAT_BLOCKED' | 'CHAT_NOT_ACTIVE';
+  message?: string;
+};
 
 const normalizeMessageType = (value: unknown): MessageType => {
   const raw = String(value || '').trim().toLowerCase();
@@ -26,6 +33,57 @@ export const resolveUserByTarget = async (target: string) => {
       ]
     }
   });
+};
+
+export const getConversationAccess = async (params: {
+  userId: string;
+  peerUserId: string;
+}): Promise<ConversationAccessResult> => {
+  const { userId, peerUserId } = params;
+
+  if (!userId || !peerUserId || String(userId) === String(peerUserId)) {
+    return {
+      allowed: false,
+      code: 'CHAT_MATCH_REQUIRED',
+      message: 'Only matched users can chat'
+    };
+  }
+
+  const [match, senderBlocked, receiverBlocked] = await Promise.all([
+    findMatchByUsers(userId, peerUserId),
+    Block.findOne({ where: { user_id: userId, target_id: peerUserId } }),
+    Block.findOne({ where: { user_id: peerUserId, target_id: userId } })
+  ]);
+
+  if (senderBlocked || receiverBlocked) {
+    return {
+      allowed: false,
+      code: 'CHAT_BLOCKED',
+      message: 'Chat is unavailable because one user has blocked the other'
+    };
+  }
+
+  if (!match) {
+    return {
+      allowed: false,
+      code: 'CHAT_MATCH_REQUIRED',
+      message: 'Only matched users can chat'
+    };
+  }
+
+  const stage = normalizeMatchStage(match.getDataValue('stage'));
+  const status = String(match.getDataValue('status') || '').trim().toLowerCase();
+  const canChat = stage === MATCH_STAGE.CHAT_STARTED;
+
+  if (!canChat || (status && status !== 'active')) {
+    return {
+      allowed: false,
+      code: 'CHAT_NOT_ACTIVE',
+      message: 'Chat is not active for this match'
+    };
+  }
+
+  return { allowed: true };
 };
 
 export const upsertConversationSummary = async (params: {

@@ -7,6 +7,7 @@ import { User } from '../models';
 import { AuthRequest } from '../middleware/auth';
 import { getProfileState } from '../services/profileService';
 import { issueSession, recordFailedLogin, refreshSession, revokeRefreshToken } from '../services/sessionService';
+import { bindReferralForNewUser, ensureReferralCode } from '../services/referralService';
 
 const WECHAT_APP_ID = process.env.WECHAT_APP_ID || '';
 const WECHAT_APP_SECRET = process.env.WECHAT_APP_SECRET || '';
@@ -149,6 +150,13 @@ export const passwordRegister = async (req: Request, res: Response) => {
       profile_completed: false,
     });
 
+    await ensureReferralCode(user);
+    await bindReferralForNewUser({
+      user,
+      referralCode: String(req.body?.referral_code || req.body?.referralCode || ''),
+      ip: normalizeIp(req),
+    });
+
     const data = await issueSession(user, {
       channel: 'password_register',
       isNewUser: true,
@@ -207,6 +215,14 @@ export const wechatSessionLogin = async (req: Request, res: Response) => {
 
     const { openid, unionid } = await exchangeWechatCode(String(code));
     const { user, isNewUser } = await findOrCreateWechatUser(openid, unionid);
+    await ensureReferralCode(user);
+    if (isNewUser) {
+      await bindReferralForNewUser({
+        user,
+        referralCode: String(req.body?.referral_code || req.body?.referralCode || ''),
+        ip: normalizeIp(req),
+      });
+    }
 
     const data = await issueSession(user, {
       channel: 'wechat',

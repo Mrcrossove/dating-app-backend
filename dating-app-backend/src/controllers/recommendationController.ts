@@ -7,6 +7,7 @@ export const getRecommendations = async (req: AuthRequest, res: Response) => {
     const userId = req.user.id;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
     const rawFilters = typeof req.query.filters === 'string' ? req.query.filters : '';
     let filters = {};
 
@@ -22,6 +23,7 @@ export const getRecommendations = async (req: AuthRequest, res: Response) => {
       userId,
       page,
       limit,
+      cursor,
       filters,
     });
 
@@ -33,6 +35,7 @@ export const getRecommendations = async (req: AuthRequest, res: Response) => {
         limit,
         total: result.total,
         hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
       },
     });
   } catch (error: any) {

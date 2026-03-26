@@ -234,6 +234,49 @@ const ensureConversationSummaryColumns = async () => {
   });
 };
 
+const ensureReferralColumns = async () => {
+  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
+  await sql('ALTER TABLE users ADD COLUMN referral_code TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN referred_by TEXT;');
+  await sql('ALTER TABLE users ADD COLUMN referral_reward_balance INTEGER DEFAULT 0;');
+  await sql('ALTER TABLE users ADD COLUMN referral_reward_total INTEGER DEFAULT 0;');
+};
+
+const ensureModerationColumns = async () => {
+  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
+  await sql("ALTER TABLE posts ADD COLUMN moderation_status TEXT DEFAULT 'visible';");
+  await sql('ALTER TABLE posts ADD COLUMN hidden_reason TEXT;');
+  await sql('ALTER TABLE posts ADD COLUMN hidden_at DATETIME;');
+  await sql("ALTER TABLE post_comments ADD COLUMN moderation_status TEXT DEFAULT 'visible';");
+  await sql('ALTER TABLE post_comments ADD COLUMN hidden_reason TEXT;');
+  await sql('ALTER TABLE post_comments ADD COLUMN hidden_at DATETIME;');
+  await sql("ALTER TABLE user_reports ADD COLUMN target_type TEXT DEFAULT 'user';");
+  await sql("ALTER TABLE user_reports ADD COLUMN status TEXT DEFAULT 'pending';");
+  await sql('ALTER TABLE user_reports ADD COLUMN review_note TEXT;');
+  await sql('ALTER TABLE user_reports ADD COLUMN action_taken TEXT;');
+  await sql('ALTER TABLE user_reports ADD COLUMN reviewed_by TEXT;');
+  await sql('ALTER TABLE user_reports ADD COLUMN reviewed_at DATETIME;');
+};
+
+const ensureReferralLedgerColumns = async () => {
+  const sql = (s: string) => sequelize.query(s).catch(() => undefined);
+  await sql(`
+    CREATE TABLE IF NOT EXISTS referral_credit_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      change_amount INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT,
+      note TEXT,
+      meta TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await sql('CREATE INDEX IF NOT EXISTS idx_referral_credit_ledger_user_created_at ON referral_credit_ledger (user_id, created_at);');
+  await sql('CREATE INDEX IF NOT EXISTS idx_referral_credit_ledger_source ON referral_credit_ledger (source_type, source_id);');
+};
+
 const startServer = async () => {
   try {
     await sequelize.authenticate();
@@ -244,6 +287,9 @@ const startServer = async () => {
     await ensurePostColumns();
     await ensureMatchColumns();
     await ensureConversationSummaryColumns();
+    await ensureReferralColumns();
+    await ensureModerationColumns();
+    await ensureReferralLedgerColumns();
     console.log('Database synced.');
 
     app.listen(PORT, '0.0.0.0', () => {

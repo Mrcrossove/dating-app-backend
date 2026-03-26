@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Op } from 'sequelize';
 import { Post, User, Photo, PostLike, PostComment, PostView } from '../models';
+import { moderateText } from '../services/textModerationService';
 
 type PostMediaItem = {
   type: 'image' | 'video';
@@ -68,6 +69,15 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Content too long' });
     }
 
+    const moderation = moderateText(text);
+    if (moderation.blocked) {
+      return res.status(400).json({
+        success: false,
+        code: 'CONTENT_BLOCKED',
+        message: `Content contains blocked words: ${moderation.matchedWords.join(', ')}`
+      });
+    }
+
     const sanitizedImagesFromImages = imageList
       .map((x: any) => (typeof x === 'string' ? x.trim() : ''))
       .filter((x: string) => x.length > 0);
@@ -106,8 +116,9 @@ export const createPost = async (req: AuthRequest, res: Response) => {
       media: JSON.stringify(sanitizedMedia),
       likes_count: 0,
       views_count: 0,
-      comments_count: 0
-    });
+      comments_count: 0,
+      moderation_status: 'visible'
+    } as any);
 
     return res.status(201).json({ success: true, data: post });
   } catch (error: any) {
@@ -116,44 +127,44 @@ export const createPost = async (req: AuthRequest, res: Response) => {
 };
 
 export const getUserPosts = async (req: AuthRequest, res: Response) => {
-    try {
-        const { userId } = req.params;
-        const posts = await Post.findAll({
-            where: { user_id: userId },
-            order: [['created_at', 'DESC']],
-            include: [{
-                model: User,
-                as: 'user',
-                attributes: ['id', 'username', 'nickname', 'avatar_url'],
-                include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
-            }]
-        });
-        
-        const data = posts.map((p: any) => ({
-            id: p.id,
-            content: p.content,
-            images: safeJsonArray(p.images),
-            media: (() => {
-              const parsed = safeJsonArray(p.media);
-              if (parsed.length) return parsed;
-              return safeJsonArray(p.images).map((url: string) => ({ type: 'image', url }));
-            })(),
-            created_at: p.created_at,
-            likes_count: p.likes_count || 0,
-            views_count: p.views_count || 0,
-            comments_count: p.comments_count || 0,
-            user: {
-                id: p.user.id,
-                username: p.user.nickname || p.user.username,
-                photo: p.user.photos?.[0]?.url || p.user.avatar_url || null
-            }
-        }));
+  try {
+    const { userId } = req.params;
+    const posts = await Post.findAll({
+      where: { user_id: userId, moderation_status: 'visible' } as any,
+      order: [['created_at', 'DESC']],
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username', 'nickname', 'avatar_url'],
+        include: [{ model: Photo, as: 'photos', where: { is_primary: true }, required: false }]
+      }]
+    });
 
-        return res.status(200).json({ success: true, data });
-    } catch (error: any) {
-        return res.status(500).json({ success: false, message: error.message });
-    }
-}
+    const data = posts.map((p: any) => ({
+      id: p.id,
+      content: p.content,
+      images: safeJsonArray(p.images),
+      media: (() => {
+        const parsed = safeJsonArray(p.media);
+        if (parsed.length) return parsed;
+        return safeJsonArray(p.images).map((url: string) => ({ type: 'image', url }));
+      })(),
+      created_at: p.created_at,
+      likes_count: p.likes_count || 0,
+      views_count: p.views_count || 0,
+      comments_count: p.comments_count || 0,
+      user: {
+        id: p.user.id,
+        username: p.user.nickname || p.user.username,
+        photo: p.user.photos?.[0]?.url || p.user.avatar_url || null
+      }
+    }));
+
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 export const getFeed = async (req: AuthRequest, res: Response) => {
   try {
@@ -161,6 +172,7 @@ export const getFeed = async (req: AuthRequest, res: Response) => {
     const { offset, pageSize, page } = normalizePagination(req);
 
     const posts = await Post.findAll({
+      where: { moderation_status: 'visible' } as any,
       order: [['created_at', 'DESC']],
       limit: pageSize,
       offset,
@@ -211,7 +223,8 @@ export const getPostDetail = async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
 
-    const post = await Post.findByPk(id, {
+    const post = await Post.findOne({
+      where: { id, moderation_status: 'visible' } as any,
       include: [{
         model: User,
         as: 'user',
@@ -266,7 +279,7 @@ export const likePost = async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
 
-    const [row, created] = await PostLike.findOrCreate({
+    const [, created] = await PostLike.findOrCreate({
       where: { post_id: id, user_id: String(userId) },
       defaults: { post_id: id, user_id: String(userId) }
     });
@@ -305,10 +318,24 @@ export const addComment = async (req: AuthRequest, res: Response) => {
     if (!id) return res.status(400).json({ success: false, message: 'Post id required' });
     const content = String(req.body?.content || '').trim();
 
-    if (!content) return res.status(400).json({ success: false, message: '内容不能为空' });
-    if (content.length > 500) return res.status(400).json({ success: false, message: '内容过长' });
+    if (!content) return res.status(400).json({ success: false, message: 'Comment content required' });
+    if (content.length > 500) return res.status(400).json({ success: false, message: 'Comment too long' });
 
-    const comment = await PostComment.create({ post_id: id, user_id: String(userId), content });
+    const moderation = moderateText(content);
+    if (moderation.blocked) {
+      return res.status(400).json({
+        success: false,
+        code: 'CONTENT_BLOCKED',
+        message: `Comment contains blocked words: ${moderation.matchedWords.join(', ')}`
+      });
+    }
+
+    const comment = await PostComment.create({
+      post_id: id,
+      user_id: String(userId),
+      content,
+      moderation_status: 'visible'
+    } as any);
     await Post.increment('comments_count', { by: 1, where: { id } }).catch(() => undefined);
 
     return res.status(201).json({ success: true, data: comment });
@@ -324,7 +351,7 @@ export const getComments = async (req: AuthRequest, res: Response) => {
     const { offset, pageSize, page } = normalizePagination(req);
 
     const comments = await PostComment.findAll({
-      where: { post_id: id },
+      where: { post_id: id, moderation_status: 'visible' } as any,
       order: [['created_at', 'ASC']],
       limit: pageSize,
       offset,

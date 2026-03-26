@@ -4,6 +4,7 @@ import axios from 'axios';
 import { AuthRequest } from '../middleware/auth';
 import { AuthRecord, Verification, User } from '../models';
 import { parseBirthDateInput } from '../utils/birthDate';
+import { ensureReferralCode, finalizeReferralVerification } from '../services/referralService';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 
@@ -75,9 +76,10 @@ export const getAuthStatus = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
 
-    const [verification, records, adminStatusRes] = await Promise.all([
+    const [verification, records, user, adminStatusRes] = await Promise.all([
       Verification.findOne({ where: { user_id: userId } }),
       AuthRecord.findAll({ where: { user_id: userId } }),
+      User.findByPk(userId),
       axios
         .get(`${ADMIN_BACKEND_URL}/api/internal/verification/user/${userId}/status`, { timeout: 10000 })
         .catch(() => ({ data: { data: null } }))
@@ -103,8 +105,12 @@ export const getAuthStatus = async (req: AuthRequest, res: Response) => {
         : Promise.resolve()
     ]);
 
+    if (user) {
+      await ensureReferralCode(user);
+    }
     if (realNameStatus === 'approved') {
       await User.update({ is_verified: true }, { where: { id: userId } }).catch(() => undefined);
+      await finalizeReferralVerification(userId).catch(() => undefined);
     }
 
     return res.status(200).json({

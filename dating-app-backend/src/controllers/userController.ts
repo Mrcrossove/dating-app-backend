@@ -8,6 +8,7 @@ import { getProfileState } from '../services/profileService';
 import { recommendationService } from '../services/recommendationService';
 import {
   backfillConversationSummariesForUser,
+  getConversationAccess,
   markConversationRead,
   recordConversationMessage,
   resolveUserByTarget
@@ -86,6 +87,25 @@ const submitBaziReviewTask = async (params: {
     },
     { timeout: 15000 }
   );
+};
+
+const respondConversationAccessError = (res: Response, access: Awaited<ReturnType<typeof getConversationAccess>>) => {
+  const code = String(access?.code || '').trim();
+  const message = access?.message || 'Chat is not available';
+
+  if (code === 'CHAT_BLOCKED') {
+    return res.status(403).json({ success: false, code, message });
+  }
+
+  if (code === 'CHAT_NOT_ACTIVE') {
+    return res.status(403).json({ success: false, code, message });
+  }
+
+  return res.status(403).json({
+    success: false,
+    code: code || 'CHAT_MATCH_REQUIRED',
+    message
+  });
 };
 
 // --- Verification Controller ---
@@ -282,6 +302,13 @@ export const getMessages = async (req: AuthRequest, res: Response) => {
         if (!target) {
           return res.status(404).json({ success: false, message: 'User not found' });
         }
+        const access = await getConversationAccess({
+          userId,
+          peerUserId: String(target.id)
+        });
+        if (!access.allowed) {
+          return respondConversationAccessError(res, access);
+        }
 
         const messages = await Message.findAll({
             where: {
@@ -322,6 +349,13 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
         if (String(target.id) === String(userId)) {
           return res.status(400).json({ success: false, message: 'Cannot send message to yourself' });
         }
+        const access = await getConversationAccess({
+          userId,
+          peerUserId: String(target.id)
+        });
+        if (!access.allowed) {
+          return respondConversationAccessError(res, access);
+        }
 
         const message = await recordConversationMessage({
             senderId: userId,
@@ -331,6 +365,36 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
         });
 
         return res.status(200).json({ success: true, data: message });
+    } catch (error: any) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+export const markMessagesRead = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user.id;
+        const rawTargetId = (req.params as any).targetId as string | string[] | undefined;
+        const targetId = Array.isArray(rawTargetId) ? rawTargetId[0] : rawTargetId;
+        const target = await resolveUserByTarget(String(targetId || ''));
+
+        if (!target) {
+          return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const access = await getConversationAccess({
+          userId,
+          peerUserId: String(target.id)
+        });
+        if (!access.allowed) {
+          return respondConversationAccessError(res, access);
+        }
+
+        await markConversationRead({
+          userId,
+          peerUserId: String(target.id)
+        });
+
+        return res.status(200).json({ success: true });
     } catch (error: any) {
         return res.status(500).json({ success: false, message: error.message });
     }

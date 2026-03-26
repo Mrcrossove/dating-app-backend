@@ -3,6 +3,7 @@ import axios from 'axios';
 import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
 import { calculateBaziWithBirthData } from '../services/baziService';
+import { consumeSynastryCredit, getReferralRewardBalance } from '../services/referralService';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 const COMPATIBILITY_TIMEOUT_MS = Number(process.env.MURRON_COMPATIBILITY_TIMEOUT_MS || 300000);
@@ -148,10 +149,15 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
     const { target_user_id, manual_target } = req.body || {};
 
     const unlocked = await getUnlocked(userId);
+    const rewardBalance = unlocked.compatibility ? 0 : await getReferralRewardBalance(userId);
     let requestPayload: Record<string, unknown> = { user_id: userId };
+    let rewardReferenceId = '';
+    let rewardMeta: Record<string, unknown> = {};
 
     if (target_user_id) {
       requestPayload.target_user_id = target_user_id;
+      rewardReferenceId = String(target_user_id);
+      rewardMeta = { target_user_id: String(target_user_id) };
     } else if (manual_target && typeof manual_target === 'object') {
       const normalized = normalizeManualTarget(manual_target as ManualTargetInput);
       const birthDate = new Date(
@@ -183,6 +189,12 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
           )
         }
       };
+      rewardReferenceId = `manual:${userId}:${normalized.name}:${normalized.birth_date}:${normalized.birth_time}`;
+      rewardMeta = {
+        manual_target_name: normalized.name,
+        manual_target_birth_date: normalized.birth_date,
+        manual_target_birth_time: normalized.birth_time
+      };
     } else {
       return res.status(400).json({ success: false, message: '请指定合盘对象' });
     }
@@ -195,6 +207,25 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
 
     const data = response.data?.data || {};
     const sections = data.sections || {};
+    const canUseRewardCredit = !unlocked.compatibility && rewardBalance > 0;
+    const rewardCredit = canUseRewardCredit
+      ? await consumeSynastryCredit({
+          userId,
+          referenceId: rewardReferenceId,
+          meta: rewardMeta
+        })
+      : {
+          applied: false,
+          balance_before: rewardBalance,
+          balance_after: rewardBalance,
+          ledger_id: null
+        };
+    const accessGrantedBy = unlocked.compatibility
+      ? 'entitlement'
+      : rewardCredit.applied
+        ? 'reward_credit'
+        : 'paywall';
+    const paywallRequired = accessGrantedBy === 'paywall';
 
     return res.json({
       success: true,
@@ -205,7 +236,9 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
           compatibility: sections.compatibility || ''
         },
         unlocked,
-        paywall_required: !unlocked.compatibility
+        reward_credit: rewardCredit,
+        access_granted_by: accessGrantedBy,
+        paywall_required: paywallRequired
       }
     });
   } catch (error: any) {

@@ -13,6 +13,7 @@ import {
 import { buildImUserId, sendTextMessageAsUser } from '../services/easemobService';
 import { hasDiscoverVipAccess, hasSuperLikeAccess } from '../services/vipService';
 import { recordConversationMessage } from '../services/conversationService';
+import { recommendationService } from '../services/recommendationService';
 
 const DEFAULT_MATCH_MESSAGE = '你好，我们可以开始聊天了！';
 
@@ -170,6 +171,8 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
     }
 
     await Like.create({ user_id: userId, target_id: targetId });
+    await recommendationService.markCandidateAction(String(userId), String(targetId), isSuperLike ? 'super_like' : 'liked');
+    await recommendationService.clearCache(String(userId));
 
     const [currentUser, targetUser, mutual] = await Promise.all([
       User.findByPk(userId, {

@@ -18,6 +18,9 @@ import Report from './Report';
 import RefreshToken from './RefreshToken';
 import LoginEvent from './LoginEvent';
 import RecommendationHistory from './RecommendationHistory';
+import ReferralInvite from './ReferralInvite';
+import ReferralReward from './ReferralReward';
+import ReferralCreditLedger from './ReferralCreditLedger';
 
 // User Associations
 User.hasMany(Photo, { foreignKey: 'user_id', as: 'photos' });
@@ -90,6 +93,18 @@ User.hasMany(RecommendationHistory, { foreignKey: 'viewer_id', as: 'recommendati
 RecommendationHistory.belongsTo(User, { foreignKey: 'viewer_id', as: 'viewer' });
 RecommendationHistory.belongsTo(User, { foreignKey: 'candidate_id', as: 'candidate' });
 
+User.hasMany(ReferralInvite, { foreignKey: 'inviter_id', as: 'sent_referrals' });
+User.hasMany(ReferralInvite, { foreignKey: 'invitee_id', as: 'received_referrals' });
+ReferralInvite.belongsTo(User, { foreignKey: 'inviter_id', as: 'inviter' });
+ReferralInvite.belongsTo(User, { foreignKey: 'invitee_id', as: 'invitee' });
+
+User.hasMany(ReferralReward, { foreignKey: 'user_id', as: 'referral_rewards' });
+ReferralReward.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+ReferralReward.belongsTo(ReferralInvite, { foreignKey: 'invite_id', as: 'invite' });
+ReferralInvite.hasMany(ReferralReward, { foreignKey: 'invite_id', as: 'rewards' });
+User.hasMany(ReferralCreditLedger, { foreignKey: 'user_id', as: 'referral_credit_ledger' });
+ReferralCreditLedger.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 export {
   User,
   Photo,
@@ -110,5 +125,8 @@ export {
   Report,
   RefreshToken,
   LoginEvent,
-  RecommendationHistory
+  RecommendationHistory,
+  ReferralInvite,
+  ReferralReward,
+  ReferralCreditLedger
 };

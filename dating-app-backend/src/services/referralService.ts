@@ -195,6 +195,25 @@ export const finalizeReferralVerification = async (inviteeId: string) => {
   return invite;
 };
 
+export const ensureReferralRewardReady = async (userId: string) => {
+  const invite = await ReferralInvite.findOne({ where: { invitee_id: userId } });
+  if (!invite) return null;
+
+  const rewardStatus = String(invite.getDataValue('reward_status') || '');
+  if (rewardStatus === 'issued' || rewardStatus === 'blocked') {
+    return invite;
+  }
+
+  const user = await User.findByPk(userId, {
+    attributes: ['id', 'is_verified'] as any,
+  });
+  if (!user || !user.getDataValue('is_verified')) {
+    return invite;
+  }
+
+  return finalizeReferralVerification(userId);
+};
+
 export const getReferralDashboard = async (userId: string) => {
   const user = await User.findByPk(userId);
   if (!user) throw new Error('User not found');

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
 import { calculateBaziWithBirthData } from '../services/baziService';
-import { consumeSynastryCredit, getReferralRewardBalance } from '../services/referralService';
+import { consumeSynastryCredit, ensureReferralRewardReady, getReferralRewardBalance } from '../services/referralService';
 
 const ADMIN_BACKEND_URL = process.env.ADMIN_BACKEND_URL || 'http://127.0.0.1:3010';
 const COMPATIBILITY_TIMEOUT_MS = Number(process.env.MURRON_COMPATIBILITY_TIMEOUT_MS || 300000);
@@ -149,6 +149,7 @@ export const getCompatibilityAnalysis = async (req: AuthRequest, res: Response) 
     const { target_user_id, manual_target } = req.body || {};
 
     const unlocked = await getUnlocked(userId);
+    await ensureReferralRewardReady(userId).catch(() => undefined);
     const rewardBalance = unlocked.compatibility ? 0 : await getReferralRewardBalance(userId);
     let requestPayload: Record<string, unknown> = { user_id: userId };
     let rewardReferenceId = '';

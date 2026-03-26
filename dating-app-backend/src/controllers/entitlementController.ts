@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { Entitlement } from '../models';
-import { getReferralRewardBalance } from '../services/referralService';
+import { ensureReferralRewardReady, getReferralRewardBalance } from '../services/referralService';
 import { recommendationService } from '../services/recommendationService';
 
 const PRODUCT_KEYS = ['partner_profile', 'compatibility', 'fortune_2026', 'dayun_report', 'super_like'] as const;
@@ -13,6 +13,7 @@ const isProductKey = (value: any): value is ProductKey =>
 export const getEntitlements = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user.id;
+    await ensureReferralRewardReady(userId).catch(() => undefined);
     const [rows, rewardBalance] = await Promise.all([
       Entitlement.findAll({
         where: { user_id: userId },
